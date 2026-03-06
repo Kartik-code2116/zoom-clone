@@ -1,0 +1,75 @@
+# Project Architecture
+
+This document describes how the Zoom Clone application works, including the interaction between the frontend, backend, and external services.
+
+## Overview
+
+The application follows a modern full-stack architecture with a React frontend, Node.js backend, MongoDB database, and LiveKit for real-time media.
+
+## Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph "Client Side (Frontend)"
+        ReactApp["React App (Vite)"]
+        LKClient["LiveKit Client SDK"]
+        SocketClient["Socket.IO Client"]
+    end
+
+    subgraph "Server Side (Backend)"
+        Express["Express Server"]
+        LKSDK["LiveKit Server SDK"]
+        SocketServer["Socket.IO Server"]
+    end
+
+    subgraph "Data & Media Services"
+        MongoDB[("MongoDB")]
+        LiveKitCloud["LiveKit Cloud (SFU)"]
+    end
+
+    %% Interactions
+    ReactApp -- "HTTPS/API Calls" --> Express
+    ReactApp -- "WebSockets (Chat)" --> SocketServer
+    Express -- "Mongoose" --> MongoDB
+    Express -- "Generate Tokens" --> LKSDK
+    LKClient -- "WebRTC (Video/Audio)" --> LiveKitCloud
+    SocketServer -- "Persistence" --> MongoDB
+```
+
+## Component Breakdown
+
+### 1. Frontend (React + Vite)
+- **Role**: User Interface and Media Rendering.
+- **Key Technologies**: TailwindCSS (Styling), React Router (Navigation), Axios (API calls).
+- **Media**: Uses `@livekit/components-react` to render video grids, handle camera/mic toggles, and screen sharing.
+- **Real-time**: Uses `socket.io-client` for the in-meeting chat sidebar.
+
+### 2. Backend (Node.js + Express)
+- **Role**: Orchestration, Authentication, and Token Management.
+- **Authentication**: Uses JWT stored in `httpOnly` cookies for secure session management.
+- **Meeting Logic**: When a user joins a meeting:
+    1. The frontend requests a token from `/api/meetings/:meetingId/token`.
+    2. The backend verifies the meeting exists in MongoDB.
+    3. The backend generates a signed JWT (LiveKit Token) using the `LIVEKIT_API_SECRET`.
+    4. This token is sent back to the frontend.
+- **Real-time**: Hosts the Socket.IO server to bridge chat messages between participants.
+
+### 3. LiveKit Cloud (SFU)
+- **Role**: Selective Forwarding Unit (SFU).
+- **Media Routing**: Instead of Peer-to-Peer, all participants send their media to LiveKit Cloud, which forwards it to others. This allows for high-scale meetings.
+- **Functionality**: Handles speaker detection, connection quality monitoring, and high-performance WebRTC streaming.
+
+### 4. MongoDB
+- **Role**: Persistent Storage.
+- **Data**: Stores User profiles, Meeting history, and Chat message logs.
+
+## Join Meeting Flow
+
+1. **User enters Meeting ID**: Frontend navigates to `/join/:meetingId`.
+2. **Token Request**: Frontend calls the backend API to get a LiveKit Access Token.
+3. **Media Connection**:
+    - Frontend uses the Token and the `LIVEKIT_URL` (wss://...) to connect to LiveKit Cloud.
+    - LiveKit Cloud validates the token and admits the user to the room.
+4. **Signaling Connection**:
+    - Frontend connects to the Express Socket.IO server for chat and signaling.
+5. **Meeting Starts**: User sees video streams and can interact with others.

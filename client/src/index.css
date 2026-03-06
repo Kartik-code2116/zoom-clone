@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-darker text-white font-sans;
+  }
+
+  /* Custom scrollbar styles */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-darker;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-dark rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary;
+  }
+
+  /* Smooth transitions globally */
+  *,
+  *::before,
+  *::after {
+    @apply transition-colors duration-200 ease-in-out;
+  }
+}

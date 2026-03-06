@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev
+    ports:
+      - "7880:7880/udp"
+      - "7880:7880/tcp"
+      - "7881:7881/udp"
+      - "7881:7881/tcp"
+      - "7882:7882/tcp"
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
