@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard';
 import JoinMeeting from './pages/JoinMeeting';
 import Meeting from './pages/Meeting';
 import MeetingSummary from './pages/MeetingSummary';
+import FraudDashboard from './pages/FraudDashboard';
 import NotFound from './pages/NotFound';
 
 const App: React.FC = () => {
@@ -30,6 +31,14 @@ const App: React.FC = () => {
         />
         <Route path="/join/:meetingId" element={<JoinMeeting />} />
         <Route path="/meeting/:meetingId" element={<Meeting />} />
+        <Route
+          path="/meeting/:meetingId/fraud-dashboard"
+          element={
+            <ProtectedRoute>
+              <FraudDashboard />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/meeting/:meetingId/summary" element={<MeetingSummary />} />
         <Route path="*" element={<NotFound />} />
       </Routes>

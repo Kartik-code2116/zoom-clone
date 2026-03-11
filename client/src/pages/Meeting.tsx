@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useParams, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { LiveKitRoom, VideoConference } from '@livekit/components-react';
@@ -7,6 +7,11 @@ import MeetingToolbar from '../components/MeetingToolbar';
 import ChatPanel from '../components/ChatPanel';
 import ParticipantPanel from '../components/ParticipantPanel';
 import MeetingTimer from '../components/MeetingTimer';
+import DeepfakeMonitor from '../components/DeepfakeMonitor';
+import MeetingSettingsModal from '../components/MeetingSettingsModal';
+import MeetingHeader from '../components/MeetingHeader';
+import ReactionTray from '../components/ReactionTray';
+import FloatingReaction from '../components/FloatingReaction';
 
 interface LocationState {
   token?: string;
@@ -26,6 +31,23 @@ const Meeting: React.FC = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [participantsOpen, setParticipantsOpen] = useState(false);
   const [isChatUnread, setIsChatUnread] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deepfakeGuardEnabled, setDeepfakeGuardEnabled] = useState<boolean>(() => {
+    const stored = window.localStorage.getItem('deepfakeGuardEnabled');
+    return stored !== null ? stored === 'true' : true;
+  });
+  const [reactionsOpen, setReactionsOpen] = useState(false);
+  const [activeReaction, setActiveReaction] = useState<string | null>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem('deepfakeGuardEnabled', String(deepfakeGuardEnabled));
+  }, [deepfakeGuardEnabled]);
+
+  const handleSelectReaction = (emoji: string) => {
+    setActiveReaction(emoji);
+    setReactionsOpen(false);
+    setTimeout(() => setActiveReaction(null), 1200);
+  };
 
   const handleToggleChat = useCallback(() => {
     setChatOpen((prev) => {
@@ -65,10 +87,27 @@ const Meeting: React.FC = () => {
         data-lk-theme="default"
         style={{ height: '100%' }}
       >
+        {/* Top meeting header with title, id and connection status */}
+        <MeetingHeader meetingId={meetingId} title={state?.userName ? `${state.userName}'s meeting` : undefined} />
+
         {/* Video Conference Area */}
-        <div className="h-full pb-20">
+        <div className="h-full pb-24 pt-10 relative">
           <VideoConference />
+
+          {/* Floating reaction animation */}
+          {activeReaction && <FloatingReaction emoji={activeReaction} />}
+
+          {/* Quick reaction tray */}
+          <ReactionTray open={reactionsOpen} onSelect={handleSelectReaction} />
         </div>
+
+        {/* DeepFake monitoring overlay (local analysis, optional logging) */}
+        {deepfakeGuardEnabled && (
+          <DeepfakeMonitor
+            meetingId={meetingId}
+            participantId={participantName}
+          />
+        )}
 
         {/* Meeting Timer */}
         <MeetingTimer />
@@ -80,6 +119,8 @@ const Meeting: React.FC = () => {
           chatOpen={chatOpen}
           participantsOpen={participantsOpen}
           isChatUnread={isChatUnread}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onToggleReactions={() => setReactionsOpen((prev) => !prev)}
         />
 
         {/* Side Panels */}
@@ -93,6 +134,18 @@ const Meeting: React.FC = () => {
         <ParticipantPanel
           isOpen={participantsOpen}
           onClose={() => setParticipantsOpen(false)}
+        />
+
+        {/* Settings modal */}
+        <MeetingSettingsModal
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          deepfakeGuardEnabled={deepfakeGuardEnabled}
+          onToggleDeepfakeGuard={() => setDeepfakeGuardEnabled((prev) => !prev)}
+          onOpenFraudDashboard={() => {
+            setSettingsOpen(false);
+            navigate(`/meeting/${meetingId}/fraud-dashboard`);
+          }}
         />
       </LiveKitRoom>
 

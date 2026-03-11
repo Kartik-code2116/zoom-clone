@@ -32,3 +32,9 @@
     @apply transition-colors duration-200 ease-in-out;
   }
 }
+
+/* LiveKit prefab `VideoConference` renders its own ControlBar.
+   We use our custom `MeetingToolbar`, so hide the built-in one to avoid duplicates. */
+.lk-control-bar {
+  display: none !important;
+}

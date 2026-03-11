@@ -9,6 +9,8 @@ interface MeetingToolbarProps {
   chatOpen: boolean;
   participantsOpen: boolean;
   isChatUnread: boolean;
+  onOpenSettings: () => void;
+  onToggleReactions?: () => void;
 }
 
 const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
@@ -17,6 +19,8 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
   chatOpen,
   participantsOpen,
   isChatUnread,
+  onOpenSettings,
+  onToggleReactions,
 }) => {
   const navigate = useNavigate();
   const { meetingId } = useParams<{ meetingId: string }>();
@@ -150,6 +154,16 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
           <span className="text-[10px] font-medium opacity-70">People</span>
         </button>
 
+        {/* Reactions */}
+        <button
+          onClick={onToggleReactions}
+          className="relative group flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white transition-all duration-200"
+          title="Reactions"
+        >
+          <span className="text-lg">😊</span>
+          <span className="text-[10px] font-medium opacity-70">Reactions</span>
+        </button>
+
         {/* Copy Link */}
         <button
           onClick={copyLink}
@@ -158,6 +172,16 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
         >
           <span className="text-lg">🔗</span>
           <span className="text-[10px] font-medium opacity-70">Invite</span>
+        </button>
+
+        {/* Settings */}
+        <button
+          onClick={onOpenSettings}
+          className="relative group flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white transition-all duration-200"
+          title="Meeting settings"
+        >
+          <span className="text-lg">⚙️</span>
+          <span className="text-[10px] font-medium opacity-70">Settings</span>
         </button>
 
         <div className="w-px h-10 bg-white/10 mx-1" />
