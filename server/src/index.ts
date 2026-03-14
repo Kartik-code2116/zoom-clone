@@ -14,7 +14,7 @@ const app = express();
 const server = http.createServer(app);
 
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
-const MOBILE_URL = 'http://10.92.33.127:5173';
+const MOBILE_URL = 'http'
 
 const io = new Server(server, {
   cors: {
