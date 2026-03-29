@@ -21,6 +21,31 @@ export interface DeepfakeStatus {
   gazeDirection: GazeDirection;
   blinkStats: BlinkStats;
   behavioralSignals: BehavioralSignals;
+  // Custom ML Model results
+  mlResult?: {
+    label: string;
+    score: number;
+    probabilities: {
+      real: number;
+      fake: number;
+    };
+    features?: {
+      total_blinks: number;
+      blink_rate: number;
+      avg_ear: number;
+      ear_variance: number;
+      yaw_variance: number;
+      pitch_variance: number;
+    };
+    frameCount: number;
+  };
+  frameMetrics?: {
+    ear: number;
+    blink_detected: boolean;
+    yaw?: number;
+    pitch?: number;
+  };
+  // Deprecated: keep for backward compatibility
   hfResult?: {
     label: string;
     score: number;
@@ -119,11 +144,13 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       microMovementsScore: 1,
       gazeShiftFrequency: 0,
     },
-    hfResult: undefined,
+    mlResult: undefined,
+    frameMetrics: undefined,
   });
 
-  // Track HF data separately
-  const hfDataRef = useRef<{ label: string; score: number } | undefined>();
+  // Track ML data separately
+  const mlDataRef = useRef<DeepfakeStatus['mlResult']>(undefined);
+  const frameMetricsRef = useRef<DeepfakeStatus['frameMetrics']>(undefined);
   const lastAnalyzedAtRef = useRef<number>(0);
 
   // Internal counters
@@ -268,27 +295,25 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       gazeShiftFrequency,
     });
 
-    // --- HF AI MODEL INTEGRATION ---
-    // Every 8 seconds, if we have a frame, send it to the backend for HF analysis
-    if (now - lastAnalyzedAtRef.current > 8000 && canvasRef.current) {
+    // --- CUSTOM ML MODEL INTEGRATION ---
+    // Every 5 seconds, if we have a frame, send it to the backend for ML analysis
+    if (now - lastAnalyzedAtRef.current > 5000 && canvasRef.current) {
         lastAnalyzedAtRef.current = now;
-        analyzeFrameWithHF(canvasRef.current).then(res => {
-            if (res) hfDataRef.current = res;
+        analyzeFrameWithML(canvasRef.current, meetingId, participantId).then(res => {
+            if (res) {
+                mlDataRef.current = res.mlResult;
+                frameMetricsRef.current = res.frameMetrics;
+            }
         });
     }
 
-    // Fuse scores: 40% behavioral, 60% HF AI (if available)
+    // Use ML model trust score directly (0-100)
     let trustScore = behavioralTrustScore;
-    if (hfDataRef.current) {
-        // Map HF Label to a "trust" value: 
-        // If label is "Real", trust = score * 100
-        // If label is "Fake", trust = (1 - score) * 100
-        const hfConfidence = hfDataRef.current.label.toLowerCase() === 'real' 
-            ? hfDataRef.current.score 
-            : 1 - hfDataRef.current.score;
-        
-        const hfTrust = hfConfidence * 100;
-        trustScore = (behavioralTrustScore * 0.4) + (hfTrust * 0.6);
+    if (mlDataRef.current) {
+        // Use the ML model's real probability as trust score
+        const mlTrust = mlDataRef.current.probabilities.real * 100;
+        // Fuse: 30% behavioral, 70% ML model (ML is more reliable)
+        trustScore = (behavioralTrustScore * 0.3) + (mlTrust * 0.7);
     }
 
     const nextStatus: DeepfakeStatus = {
@@ -303,7 +328,8 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
         microMovementsScore,
         gazeShiftFrequency,
       },
-      hfResult: hfDataRef.current,
+      mlResult: mlDataRef.current,
+      frameMetrics: frameMetricsRef.current,
     };
 
     setStatus((prev) => {
@@ -343,19 +369,24 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       </div>
 
       <div className="px-4 py-3 space-y-2">
-        {status.hfResult ? (
+        {status.mlResult ? (
            <div className="pb-1 border-b border-slate-700/50 mb-1 flex items-center justify-between">
-             <span className="text-[10px] text-slate-400 font-mono uppercase">HF AI MODEL</span>
-             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-               status.hfResult.label.toLowerCase() === 'real' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-             }`}>
-               {status.hfResult.label} {(status.hfResult.score * 100).toFixed(0)}%
-             </span>
+             <span className="text-[10px] text-slate-400 font-mono uppercase">ZPPM AI MODEL</span>
+             <div className="flex flex-col items-end">
+               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                 status.mlResult.label.toLowerCase() === 'real' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+               }`}>
+                 {status.mlResult.label.toUpperCase()} {(status.mlResult.score * 100).toFixed(0)}%
+               </span>
+               <span className="text-[9px] text-slate-500 mt-0.5">
+                 Real: {(status.mlResult.probabilities.real * 100).toFixed(0)}% | Fake: {(status.mlResult.probabilities.fake * 100).toFixed(0)}%
+               </span>
+             </div>
            </div>
         ) : (
           <div className="pb-1 border-b border-slate-700/50 mb-1 flex items-center justify-between">
-            <span className="text-[10px] text-slate-400 font-mono uppercase">HF AI MODEL</span>
-            <span className="text-[9px] text-slate-500 italic">Waiting/Token Missing...</span>
+            <span className="text-[10px] text-slate-400 font-mono uppercase">ZPPM AI MODEL</span>
+            <span className="text-[9px] text-slate-500 italic">Initializing...</span>
           </div>
         )}
         <div className="flex items-center justify-between">
@@ -381,15 +412,15 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
             </div>
           </div>
           <div>
-            <div className="text-slate-400">Micro-movements</div>
+            <div className="text-slate-400">EAR (Eye Aspect)</div>
             <div className="font-medium">
-              {(status.behavioralSignals.microMovementsScore * 100).toFixed(0)}%
+              {status.frameMetrics?.ear?.toFixed(3) || '---'}
             </div>
           </div>
           <div>
-            <div className="text-slate-400">Gaze shifts</div>
+            <div className="text-slate-400">ML Frames</div>
             <div className="font-medium">
-              {status.behavioralSignals.gazeShiftFrequency.toFixed(2)} /s
+              {status.mlResult?.frameCount || 0}
             </div>
           </div>
         </div>
@@ -397,6 +428,18 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
         {status.isLikelyFake && (
           <div className="mt-1 rounded-md bg-red-900/60 border border-red-700 px-2 py-1 text-[11px] text-red-100">
             DeepFake patterns detected – participant may be fake.
+          </div>
+        )}
+
+        {status.mlResult?.features && (
+          <div className="mt-2 pt-2 border-t border-slate-700/50">
+            <div className="text-[10px] text-slate-400 font-mono uppercase mb-1">ML FEATURES</div>
+            <div className="grid grid-cols-2 gap-1 text-[9px] text-slate-400">
+              <div>Blinks: {status.mlResult.features.total_blinks}</div>
+              <div>Rate: {status.mlResult.features.blink_rate.toFixed(1)}/min</div>
+              <div>EAR Var: {status.mlResult.features.ear_variance.toFixed(4)}</div>
+              <div>Yaw Var: {status.mlResult.features.yaw_variance.toFixed(2)}</div>
+            </div>
           </div>
         )}
       </div>
@@ -414,13 +457,35 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   );
 };
 
-export async function analyzeFrameWithHF(canvas: HTMLCanvasElement): Promise<{ label: string; score: number } | undefined> {
+export async function analyzeFrameWithML(
+    canvas: HTMLCanvasElement,
+    meetingId?: string,
+    participantId?: string
+): Promise<{ mlResult: DeepfakeStatus['mlResult']; frameMetrics: DeepfakeStatus['frameMetrics'] } | undefined> {
     try {
         const imageBase64 = canvas.toDataURL('image/jpeg', 0.8);
-        const { data } = await api.post('/deepfake/analyze', { imageBase64 });
-        return { label: data.label, score: data.score };
+        const { data } = await api.post('/deepfake/analyze', {
+            imageBase64,
+            meetingId,
+            participantId
+        });
+
+        if (!data.faceDetected) {
+            return undefined;
+        }
+
+        return {
+            mlResult: data.prediction ? {
+                label: data.prediction.label,
+                score: data.prediction.confidence,
+                probabilities: data.prediction.probabilities,
+                features: data.mlModel?.features,
+                frameCount: data.mlModel?.frameCount || 0
+            } : undefined,
+            frameMetrics: data.frameMetrics
+        };
     } catch (err) {
-        console.warn('HF Analysis error', err);
+        console.warn('ML Analysis error', err);
         return undefined;
     }
 }
@@ -454,8 +519,15 @@ async function maybeLogStatus(
       microMovementsScore: status.behavioralSignals.microMovementsScore,
       gazeShiftFrequency: status.behavioralSignals.gazeShiftFrequency,
       snapshotJpegDataUrl,
-      hfLabel: status.hfResult?.label,
-      hfScore: status.hfResult?.score,
+      // Custom ML Model fields
+      mlLabel: status.mlResult?.label,
+      mlConfidence: status.mlResult?.score,
+      mlProbabilities: status.mlResult?.probabilities,
+      mlFeatures: status.mlResult?.features,
+      frameMetrics: status.frameMetrics,
+      // Deprecated HF fields (keep for backward compatibility)
+      hfLabel: undefined,
+      hfScore: undefined,
     });
   } catch (err) {
     console.warn('Deepfake log error', err);

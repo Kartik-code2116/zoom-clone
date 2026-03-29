@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deepfake Detection Dashboard</title>
+    <!-- Use Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --success: #10b981;
+            --danger: #ef4444;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 90%;
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            padding: 3rem;
+            border-radius: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            margin-bottom: 1rem;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p {
+            color: var(--text-muted);
+            margin-bottom: 2.5rem;
+            font-size: 1.1rem;
+        }
+
+        .upload-area {
+            border: 2px dashed rgba(255, 255, 255, 0.2);
+            padding: 3rem;
+            border-radius: 1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        .btn {
+            background: var(--primary);
+            color: white;
+            padding: 0.8rem 2rem;
+            border-radius: 0.75rem;
+            border: none;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-top: 1rem;
+        }
+
+        .btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #result {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            border-radius: 1rem;
+            display: none;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .result-card {
+            background: rgba(15, 23, 42, 0.5);
+            padding: 2rem;
+            border-radius: 1rem;
+            margin-top: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .label {
+            font-size: 2rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-bottom: 0.5rem;
+        }
+
+        .real { color: var(--success); }
+        .fake { color: var(--danger); }
+
+        .confidence {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-top: 1.5rem;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        .feature-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .feature-name { color: var(--text-muted); }
+        .feature-value { font-weight: 600; }
+
+        .loader {
+            display: none;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            position: relative;
+            animation: rotate 1s linear infinite;
+            margin: 2rem auto;
+        }
+        .loader::before {
+            content: "";
+            box-sizing: border-box;
+            position: absolute;
+            inset: 0px;
+            border-radius: 50%;
+            border: 5px solid #FFF;
+            animation: prixClipFix 2s linear infinite;
+        }
+
+        @keyframes rotate { 100% {transform: rotate(360deg)} }
+        @keyframes prixClipFix {
+            0%   {clip-path:polygon(50% 50%,0 0,0 0,0 0,0 0,0 0)}
+            25%  {clip-path:polygon(50% 50%,0 0,100% 0,100% 0,100% 0,100% 0)}
+            50%  {clip-path:polygon(50% 50%,0 0,100% 0,100% 100%,100% 100%,100% 100%)}
+            75%  {clip-path:polygon(50% 50%,0 0,100% 0,100% 100%,0 100%,0 100%)}
+            100% {clip-path:polygon(50% 50%,0 0,100% 0,100% 100%,0 100%,0 0)}
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="main-card">
+        <h1>DeepCheck v2.0</h1>
+        <p>Advanced Behavioral Deepfake Verification System</p>
+        
+        <div class="upload-area" onclick="document.getElementById('file-input').click()">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 1rem; opacity: 0.5;">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <div id="file-name" style="font-weight: 600;">Click to upload video</div>
+            <div style="font-size: 0.8rem; margin-top: 0.5rem; opacity: 0.5;">MP4, AVI, MOV up to 100MB</div>
+            <input type="file" id="file-input" accept="video/*" onchange="handleFileChange(event)">
+        </div>
+
+        <button id="analyze-btn" class="btn" disabled onclick="analyzeVideo()">Verify Identity</button>
+
+        <div class="loader" id="loader"></div>
+
+        <div id="result">
+            <div class="result-card">
+                <div id="result-label" class="label"></div>
+                <div id="result-confidence" class="confidence"></div>
+                <div id="features-list" class="features-grid"></div>
+            </div>
+            <button class="btn" onclick="resetUI()" style="background: transparent; border: 1px solid rgba(255,255,255,0.1); margin-top: 2rem;">Scan Another</button>
+        </div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+
+        function handleFileChange(event) {
+            const file = event.target.files[0];
+            if (file) {
+                selectedFile = file;
+                document.getElementById('file-name').textContent = file.name;
+                document.getElementById('analyze-btn').disabled = false;
+            }
+        }
+
+        async function analyzeVideo() {
+            if (!selectedFile) return;
+
+            const btn = document.getElementById('analyze-btn');
+            const loader = document.getElementById('loader');
+            const resultDiv = document.getElementById('result');
+            
+            btn.style.display = 'none';
+            loader.style.display = 'block';
+            resultDiv.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    showResult(data);
+                } else {
+                    alert('Error: ' + data.error);
+                    resetUI();
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Connection error. Is the server running?');
+                resetUI();
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function showResult(data) {
+            const resultDiv = document.getElementById('result');
+            const labelDiv = document.getElementById('result-label');
+            const confDiv = document.getElementById('result-confidence');
+            const featuresDiv = document.getElementById('features-list');
+
+            resultDiv.style.display = 'block';
+            labelDiv.textContent = data.label;
+            labelDiv.className = 'label ' + data.label;
+            confDiv.textContent = `Confidence: ${(data.confidence * 100).toFixed(1)}%`;
+
+            // Display key features
+            featuresDiv.innerHTML = '';
+            const keyFeatures = {
+                'Total Blinks': data.features.total_blinks,
+                'Blink Rate': data.features.blink_rate.toFixed(2),
+                'Avg EAR': data.features.avg_ear.toFixed(3),
+                'Yaw Variance': data.features.yaw_variance.toFixed(2),
+                'Pitch Variance': data.features.pitch_variance.toFixed(2),
+                'Angular Velocity': data.features.yaw_angular_velocity.toFixed(2)
+            };
+
+            for (const [name, value] of Object.entries(keyFeatures)) {
+                featuresDiv.innerHTML += `
+                    <div class="feature-item">
+                        <span class="feature-name">${name}</span>
+                        <span class="feature-value">${value}</span>
+                    </div>
+                `;
+            }
+        }
+
+        function resetUI() {
+            selectedFile = null;
+            document.getElementById('file-name').textContent = 'Click to upload video';
+            document.getElementById('analyze-btn').disabled = true;
+            document.getElementById('analyze-btn').style.display = 'inline-block';
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('file-input').value = '';
+        }
+    </script>
+</body>
+</html>

@@ -19,6 +19,27 @@ interface DeepfakeLogItem {
   snapshotJpegDataUrl?: string;
   hfLabel?: string;
   hfScore?: number;
+  // Custom ML Model fields
+  mlLabel?: string;
+  mlConfidence?: number;
+  mlProbabilities?: {
+    real: number;
+    fake: number;
+  };
+  mlFeatures?: {
+    total_blinks: number;
+    blink_rate: number;
+    avg_ear: number;
+    ear_variance: number;
+    yaw_variance: number;
+    pitch_variance: number;
+  };
+  frameMetrics?: {
+    ear: number;
+    blink_detected: boolean;
+    yaw?: number;
+    pitch?: number;
+  };
   createdAt: string;
 }
 
@@ -54,8 +75,10 @@ const FraudDashboard: React.FC = () => {
       ? logs.reduce((acc, l) => acc + l.trustScore, 0) / logs.length
       : null;
     const last = logs.length ? logs[logs.length - 1] : null;
-    const aiDetections = logs.filter(l => l.hfLabel?.toLowerCase() === 'fake').length;
-    return { minTrust, avgTrust, last, aiDetections };
+    const hfDetections = logs.filter(l => l.hfLabel?.toLowerCase() === 'fake').length;
+    const mlDetections = logs.filter(l => l.mlLabel?.toLowerCase() === 'fake').length;
+    const mlFrames = logs.filter(l => l.mlLabel).length;
+    return { minTrust, avgTrust, last, hfDetections, mlDetections, mlFrames };
   }, [logs]);
 
   const downloadJson = () => {
@@ -72,7 +95,8 @@ const FraudDashboard: React.FC = () => {
     return logs.map((log) => ({
       time: new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       trust: Math.round(log.trustScore),
-      hfTrust: log.hfLabel ? (log.hfLabel.toLowerCase() === 'real' ? Math.round(log.hfScore! * 100) : Math.round((1 - log.hfScore!) * 100)) : null,
+      mlTrust: log.mlProbabilities ? Math.round(log.mlProbabilities.real * 100) : null,
+      mlFakeProb: log.mlProbabilities ? Math.round(log.mlProbabilities.fake * 100) : null,
       isFake: log.isLikelyFake
     }));
   }, [logs]);
@@ -112,8 +136,9 @@ const FraudDashboard: React.FC = () => {
             <div className="text-2xl font-bold text-white mt-1">{logs.length}</div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 font-semibold text-red-400">
-            <div className="text-xs text-white/50">AI Detections (HF)</div>
-            <div className="text-2xl font-bold mt-1">{summary.aiDetections}</div>
+            <div className="text-xs text-white/50">AI Detections (ML)</div>
+            <div className="text-2xl font-bold mt-1">{summary.mlDetections}</div>
+            <div className="text-[10px] text-white/30">out of {summary.mlFrames} ML-analyzed frames</div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <div className="text-xs text-white/50">Flagged events</div>
@@ -154,11 +179,20 @@ const FraudDashboard: React.FC = () => {
                   />
                   <Line 
                     type="monotone" 
-                    dataKey="hfTrust" 
+                    dataKey="mlTrust" 
                     stroke="#3b82f6" 
-                    name="HF AI Score"
+                    name="ML Real Probability"
                     strokeWidth={1.5} 
                     strokeDasharray="3 3"
+                    dot={false} 
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="mlFakeProb" 
+                    stroke="#ef4444" 
+                    name="ML Fake Probability"
+                    strokeWidth={1.5} 
+                    strokeDasharray="5 5"
                     dot={false} 
                   />
                 </LineChart>
@@ -249,12 +283,30 @@ const FraudDashboard: React.FC = () => {
                         <span>Gaze shifts</span>
                         <span className="text-white/90 font-medium">{item.gazeShiftFrequency.toFixed(2)} /s</span>
                       </div>
-                      {item.hfLabel && (
+                      {item.mlLabel && (
                         <div className="flex items-center justify-between pt-1 mt-1 border-t border-white/5">
-                          <span className="text-[10px] text-white/40 font-mono">HF AI</span>
-                          <span className={`text-[11px] font-bold ${item.hfLabel?.toLowerCase() === 'real' ? 'text-emerald-400' : (item.hfLabel ? 'text-red-400' : 'text-white/20')}`}>
-                            {item.hfLabel || 'No Data'} {item.hfScore ? `${(item.hfScore * 100).toFixed(0)}%` : ''}
-                          </span>
+                          <span className="text-[10px] text-white/40 font-mono">ZPPM ML</span>
+                          <div className="flex flex-col items-end">
+                            <span className={`text-[11px] font-bold ${item.mlLabel?.toLowerCase() === 'real' ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {item.mlLabel.toUpperCase()} {item.mlConfidence ? `${(item.mlConfidence * 100).toFixed(0)}%` : ''}
+                            </span>
+                            {item.mlProbabilities && (
+                              <span className="text-[9px] text-white/50">
+                                R:{(item.mlProbabilities.real * 100).toFixed(0)}% F:{(item.mlProbabilities.fake * 100).toFixed(0)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {item.mlFeatures && (
+                        <div className="mt-2 pt-2 border-t border-white/5">
+                          <div className="text-[9px] text-white/40 font-mono mb-1">ML FEATURES</div>
+                          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px] text-white/60">
+                            <div>Blinks: {item.mlFeatures.total_blinks}</div>
+                            <div>Rate: {item.mlFeatures.blink_rate.toFixed(1)}/min</div>
+                            <div>EAR Var: {item.mlFeatures.ear_variance.toFixed(4)}</div>
+                            <div>Yaw Var: {item.mlFeatures.yaw_variance.toFixed(2)}</div>
+                          </div>
                         </div>
                       )}
                       <div className="pt-2">

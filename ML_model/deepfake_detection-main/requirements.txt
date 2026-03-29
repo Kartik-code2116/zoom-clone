@@ -1,0 +1,20 @@
+# Core ML & CV
+numpy
+pandas
+scikit-learn
+opencv-python
+scipy
+joblib
+tensorflow
+keras
+mediapipe
+ultralytics
+
+# Web Server
+flask
+flask-cors
+werkzeug
+
+# Utils
+tqdm
+typing-extensions

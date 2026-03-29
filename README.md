@@ -27,20 +27,20 @@ A full-featured, production-ready video conferencing platform built with React, 
 - ✅ **Dynamic Host Badge** — the meeting creator is identified and shown as "Host" in all participants' panels using LiveKit metadata (no hardcoding)
 - ✅ Accurate identity resolution: authenticated users are matched by their unique User ID
 
-### 🤖 AI Deepfake Detection Engine
-- ✅ Real-time deepfake analysis powered by **Google MediaPipe Face Mesh** (468 facial landmarks)
-- ✅ Eye Aspect Ratio (EAR) blink detection — flags abnormal blink rates (< 5/min or > 35/min)
+- ✅ Real-time deepfake analysis powered by **Google MediaPipe Face Mesh** (behavioral) and **HuggingFace AI Models** (image classification)
+- ✅ Eye Aspect Ratio (EAR) blink detection — flags abnormal blink rates
 - ✅ Nose-to-cheek landmark gaze estimation — detects abnormal gaze shift patterns
-- ✅ Micro-movement analysis — detects unnaturally still faces (pre-recorded videos / static images)
-- ✅ Composite `TrustScore` (0–100) computed from behavioral signals
+- ✅ Micro-movement analysis — detects unnaturally still faces
+- ✅ **HuggingFace AI Proxy** — Server-side image classification using `prithivMLmods/Deep-Fake-Detector-v2-Model`
+- ✅ **Fused TrustScore** (0–100) — Weighted combination of behavioral signals (40%) and AI model probability (60%)
 - ✅ Configurable — guard can be toggled per user
-- ✅ Events logged to MongoDB with optional JPEG snapshot evidence
+- ✅ Events logged to MongoDB with AI confidence labels and JPEG snapshot evidence
 
 ### 📊 Host Fraud Dashboard
 - ✅ Per-meeting deepfake event log viewer at `/meeting/:id/fraud-dashboard`
-- ✅ **Trust Score Timeline** chart (interactive `recharts` line graph)
-- ✅ Summary cards — total snapshots, flagged events, min/avg trust score
-- ✅ Evidence snapshot viewer for each flagged event
+- ✅ **Trust Score Timeline** chart — shows both Integrated Trust and raw AI Model Confidence
+- ✅ Summary cards — total snapshots, **AI model detections**, flagged events, min/avg trust score
+- ✅ Evidence snapshot viewer for each flagged event with AI classification labels
 - ✅ Export full event log as JSON for audit
 
 ### 🔒 Security & Auth
@@ -155,7 +155,7 @@ zoom-clone/
 │   │   ├── routes/
 │   │   │   ├── auth.ts                 # Register, login, logout, /me
 │   │   │   ├── meetings.ts             # Create, list, token (host metadata), end
-│   │   │   └── deepfake.ts             # Log event, get logs by meeting
+│   │   │   └── deepfake.ts             # /analyze (HuggingFace proxy), /log event, /logs/:meetingId
 │   │   ├── utils/
 │   │   │   └── livekit.ts              # Token generator (with metadata support)
 │   │   ├── middleware/auth.ts          # JWT validation
@@ -180,6 +180,7 @@ LIVEKIT_API_KEY=devkey
 LIVEKIT_API_SECRET=secret
 LIVEKIT_URL=ws://localhost:7880
 CLIENT_URL=http://localhost:5173
+HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxx  # HuggingFace API Token
 ```
 
 | Variable           | Default                                   | Description                |
@@ -191,18 +192,18 @@ CLIENT_URL=http://localhost:5173
 | `LIVEKIT_API_SECRET` | `secret`                                | LiveKit API secret         |
 | `LIVEKIT_URL`      | `ws://localhost:7880`                     | LiveKit server WebSocket URL |
 | `CLIENT_URL`       | `http://localhost:5173`                   | Frontend origin (for CORS) |
+| `HF_TOKEN`         | *(required)*                              | HuggingFace API Token      |
 
 ---
 
-## 🔬 AI Deepfake Detection — How It Works
-
-The `DeepfakeMonitor` component runs entirely **client-side** using Google's MediaPipe Face Mesh library:
-
-1. **Face Landmark Detection** — Tracks 468 facial points in real-time from the local video stream.
-2. **Eye Aspect Ratio (EAR)** — Measures blink frequency. Humans blink 10–20 times/min. Abnormal rates trigger a score penalty.
-3. **Gaze Estimation** — Computes the horizontal offset of the nose tip relative to cheekbones to detect suspicious gaze patterns.
-4. **Micro-movement Score** — Tracks subtle nose-tip jitter. Unnaturally still faces (e.g., a replayed video) produce a near-zero score.
-5. **Trust Score** — A composite 0–100 score. Scores below 40 flag the participant as "Likely Fake" and log the event with an optional JPEG snapshot to the backend.
+The `DeepfakeMonitor` component combines local behavioral analysis with server-side AI model verification:
+1. **Face Landmark Detection (Behavioral)** — Uses Google's MediaPipe Face Mesh to track 468 facial points locally.
+2. **Signal Analysis** — Computes Eye Aspect Ratio (EAR), Gaze Offset, and Micro-movement jitter.
+3. **AI Model Verification** — Every 8 seconds, a frame is captured and analyzed by the `prithivMLmods/Deep-Fake-Detector-v2-Model` via HuggingFace Inference.
+4. **Fused Trust Score** — A weighted composite score:
+    - **40% weight**: Local behavioral consistency (blinking, jitter, gaze).
+    - **60% weight**: HuggingFace AI classification probability.
+5. **Logging** — Events below the trust threshold are logged to MongoDB with JPEG snapshots and explicit AI classification labels.
 
 ---
 
@@ -228,6 +229,7 @@ The `DeepfakeMonitor` component runs entirely **client-side** using Google's Med
 ### Deepfake
 | Method | Endpoint                        | Description                          |
 |--------|---------------------------------|--------------------------------------|
+| POST   | `/api/deepfake/analyze`         | Proxy call to HuggingFace AI model   |
 | POST   | `/api/deepfake/log`             | Log a deepfake detection event       |
 | GET    | `/api/deepfake/logs/:meetingId` | Get all logs for a meeting (auth)    |
 
@@ -240,7 +242,7 @@ The `DeepfakeMonitor` component runs entirely **client-side** using Google's Med
 | Frontend     | React 18, Vite, TypeScript, TailwindCSS     |
 | Video/Audio  | LiveKit SDK + LiveKit SFU (Docker)          |
 | Real-time    | Socket.IO                                   |
-| AI Detection | Google MediaPipe Face Mesh                  |
+| AI Detection | Google MediaPipe + HuggingFace Inference     |
 | Charts       | Recharts                                    |
 | Backend      | Node.js, Express.js, TypeScript             |
 | Database     | MongoDB (Mongoose)                          |
