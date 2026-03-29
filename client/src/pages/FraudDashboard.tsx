@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import api from '../services/api';
 import Navbar from '../components/Navbar';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 type GazeDirection = 'center' | 'left' | 'right' | 'up' | 'down' | 'unknown';
 
@@ -64,6 +65,14 @@ const FraudDashboard: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const chartData = useMemo(() => {
+    return logs.map((log) => ({
+      time: new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      trust: Math.round(log.trustScore),
+      isFake: log.isLikelyFake
+    }));
+  }, [logs]);
+
   return (
     <div className="min-h-screen bg-dark">
       <Navbar />
@@ -111,6 +120,34 @@ const FraudDashboard: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Timeline Chart */}
+        {logs.length > 0 && (
+          <div className="mt-6 h-64 bg-white/[0.03] border border-white/10 rounded-2xl p-4">
+            <h3 className="text-white/70 text-sm font-medium mb-4">Trust Score Timeline</h3>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#ffffff15" vertical={false} />
+                  <XAxis dataKey="time" stroke="#ffffff50" fontSize={11} tickMargin={10} minTickGap={30} />
+                  <YAxis stroke="#ffffff50" fontSize={11} domain={[0, 100]} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                    itemStyle={{ color: '#fff' }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="trust" 
+                    stroke="#10b981" 
+                    strokeWidth={2} 
+                    dot={false} 
+                    activeDot={{ r: 4 }} 
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
         {/* Flagged list */}
         <section className="mt-8">

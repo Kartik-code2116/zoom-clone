@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import api from '../services/api';
+import { FaceMesh, Results } from '@mediapipe/face_mesh';
+import { Camera } from '@mediapipe/camera_utils';
 
 type GazeDirection = 'center' | 'left' | 'right' | 'up' | 'down' | 'unknown';
 
@@ -27,8 +29,71 @@ interface DeepfakeMonitorProps {
   participantId?: string;
 }
 
-const FRAME_RATE = 30; // FPS
-const ANALYSIS_INTERVAL_MS = 1000 / FRAME_RATE;
+// Calculate the 'Eye Aspect Ratio' (EAR) to detect blinks
+// Points based on standard 468 facial landmarks from MediaPipe
+const LEFT_EYE_POINTS = [362, 385, 387, 263, 373, 380];
+const RIGHT_EYE_POINTS = [33, 160, 158, 133, 153, 144];
+
+function getDistance(p1: { x: number; y: number }, p2: { x: number; y: number }) {
+  return Math.hypot(p1.x - p2.x, p1.y - p2.y);
+}
+
+function calculateEAR(landmarks: any[], indices: number[]) {
+  const p1 = landmarks[indices[0]];
+  const p2 = landmarks[indices[1]];
+  const p3 = landmarks[indices[2]];
+  const p4 = landmarks[indices[3]];
+  const p5 = landmarks[indices[4]];
+  const p6 = landmarks[indices[5]];
+
+  const vert1 = getDistance(p2, p6);
+  const vert2 = getDistance(p3, p5);
+  const horiz = getDistance(p1, p4);
+
+  if (horiz === 0) return 0;
+  return (vert1 + vert2) / (2.0 * horiz);
+}
+
+// Compute an overall trust score based on behavioral factors
+function computeTrustScore({
+  blinkRatePerMin,
+  microMovementsScore,
+  gazeShiftFrequency,
+}: {
+  blinkRatePerMin: number;
+  microMovementsScore: number;
+  gazeShiftFrequency: number;
+}): number {
+  let score = 100;
+
+  // 1. Blinks: Humans average 10-20 blinks per minute (0.15 - 0.33 per second)
+  // Non-blinking or hyper-blinking reduces trust
+  if (blinkRatePerMin === 0) {
+    score -= 30; // Deepfakes often don't blink
+  } else if (blinkRatePerMin < 5) {
+    score -= 15; 
+  } else if (blinkRatePerMin > 45) {
+    score -= 20; // Hyper-blinking (glitching)
+  }
+
+  // 2. Micro movements: Natural human jitter 
+  // 1.0 = perfectly natural (score 100%), 0.0 = completely rigid
+  if (microMovementsScore < 0.2) {
+    score -= 25; // Too rigid, likely an image
+  } else if (microMovementsScore < 0.5) {
+    score -= 10;
+  }
+
+  // 3. Gaze shifts: Completely fixed gaze is suspicious
+  if (gazeShiftFrequency < 0.1) {
+    score -= 15;
+  } else if (gazeShiftFrequency > 3.0) {
+    // Erratic gaze (tracker losing bounds)
+    score -= 20; 
+  }
+
+  return Math.max(0, Math.min(100, score));
+}
 
 const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   onStatusChange,
@@ -37,8 +102,7 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const lastAnalysisRef = useRef<number>(performance.now());
+
   const [status, setStatus] = useState<DeepfakeStatus>({
     trustScore: 100,
     isLikelyFake: false,
@@ -53,108 +117,145 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
     },
   });
 
-  // Internal counters for simple behavioral statistics
-  const blinkCountRef = useRef<number>(0);
-  const gazeShiftCountRef = useRef<number>(0);
-  const lastGazeDirectionRef = useRef<GazeDirection>('unknown');
+  // Internal counters
+  const historyRef = useRef<{
+    blinks: number[]; // timestamps of blinks
+    gazeShifts: number;
+    lastGaze: GazeDirection;
+    lastEAR: number; // for transition detection
+    lastLandmarks: any[] | null;
+  }>({
+    blinks: [],
+    gazeShifts: 0,
+    lastGaze: 'unknown',
+    lastEAR: 0.3,
+    lastLandmarks: null,
+  });
+
   const statsWindowStartRef = useRef<number>(performance.now());
-  // (logging throttling is handled globally inside maybeLogStatus)
+  const BLINK_THRESHOLD = 0.2; // EAR dropped below 0.2 means eyes are closed
 
   useEffect(() => {
-    async function setupStream() {
-      try {
-        // Capture webcam video locally for analysis (audio not required)
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { frameRate: FRAME_RATE },
-          audio: false,
-        });
+    let camera: Camera | null = null;
+    let faceMesh: FaceMesh | null = null;
+    
+    // We only initialize if the video ref exists
+    if (!videoRef.current) return;
 
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+    faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    faceMesh.onResults((results: Results) => {
+      onMediaPipeResults(results);
+    });
+
+    camera = new Camera(videoRef.current, {
+      onFrame: async () => {
+        if (videoRef.current && faceMesh) {
+          await faceMesh.send({ image: videoRef.current });
         }
+      },
+      width: 640,
+      height: 360,
+    });
 
-        startAnalysisLoop();
-      } catch (err) {
-        console.error('DeepfakeMonitor: camera access error', err);
-      }
-    }
-
-    setupStream();
+    camera.start();
 
     return () => {
-      // Cleanup
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-      }
+      if (camera) camera.stop();
+      if (faceMesh) faceMesh.close();
     };
-    // We intentionally run this only once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startAnalysisLoop = () => {
-    const analyze = () => {
-      const now = performance.now();
-      if (now - lastAnalysisRef.current >= ANALYSIS_INTERVAL_MS) {
-        lastAnalysisRef.current = now;
-        analyzeFrame();
+  const onMediaPipeResults = (results: Results) => {
+    const now = performance.now();
+    const state = historyRef.current;
+
+    let microMovementsScore = 1.0;
+    let gazeDirection: GazeDirection = state.lastGaze;
+    let blinkDetected = false;
+
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+      const landmarks = results.multiFaceLandmarks[0];
+
+      // EAR Calculation for both eyes
+      const leftEAR = calculateEAR(landmarks, LEFT_EYE_POINTS);
+      const rightEAR = calculateEAR(landmarks, RIGHT_EYE_POINTS);
+      const ear = (leftEAR + rightEAR) / 2.0;
+
+      // Blink detection logic
+      if (ear < BLINK_THRESHOLD && state.lastEAR >= BLINK_THRESHOLD) {
+        // Just closed eyes - count as blink
+        blinkDetected = true;
+        state.blinks.push(now);
       }
-      requestAnimationFrame(analyze);
-    };
+      state.lastEAR = ear;
 
-    requestAnimationFrame(analyze);
-  };
+      // Simple Gaze Estimation using Iris points (468, 473 are iris centers roughly)
+      // For a true implementation, we compare geometric ratios
+      // Here we approximate based on nose tip vs head bounding box
+      const nose = landmarks[1];
+      const leftCheek = landmarks[234];
+      const rightCheek = landmarks[454];
 
-  const analyzeFrame = () => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    if (video.readyState < 2) return; // HAVE_CURRENT_DATA
+      const faceWidth = getDistance(leftCheek, rightCheek);
+      const noseToLeft = getDistance(nose, leftCheek);
+      const noseToRight = getDistance(nose, rightCheek);
+      
+      if (faceWidth > 0) {
+        const ratio = noseToLeft / faceWidth;
+        if (ratio < 0.35) gazeDirection = 'left';
+        else if (ratio > 0.65) gazeDirection = 'right';
+        else gazeDirection = 'center';
+      }
 
-    const width = video.videoWidth || 640;
-    const height = video.videoHeight || 360;
-    if (!width || !height) return;
+      // Micro movements (compute jitter vs last frame)
+      if (state.lastLandmarks) {
+        const prevNose = state.lastLandmarks[1];
+        const jitter = getDistance(nose, prevNose);
+        
+        // Jitter should exist (human) but not be erratic (glitching)
+        if (jitter < 0.0001) microMovementsScore = 0.1; // Total freeze
+        else if (jitter > 0.05) microMovementsScore = 0.3; // Erratic glitch
+        else microMovementsScore = 0.9;
+      }
+      
+      state.lastLandmarks = landmarks;
+    } else {
+      // No face detected - tank the trust score slightly or assume low score
+      microMovementsScore = 0.0;
+    }
 
-    canvas.width = width;
-    canvas.height = height;
+    if (gazeDirection !== state.lastGaze && gazeDirection !== 'unknown') {
+      state.gazeShifts += 1;
+      state.lastGaze = gazeDirection;
+    }
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    // Purge old blinks > 60 seconds
+    state.blinks = state.blinks.filter((t) => now - t < 60000);
 
-    ctx.drawImage(video, 0, 0, width, height);
-    const imageData = ctx.getImageData(0, 0, width, height);
+    const windowDurationSec = (now - statsWindowStartRef.current) / 1000;
+    if (windowDurationSec > 30) {
+      // Reset generic stats window
+      statsWindowStartRef.current = now;
+      state.gazeShifts = 0; 
+    }
 
-    // --- Simple heuristic analysis placeholders ---
-    // These are intentionally lightweight and can be replaced with
-    // MediaPipe Face Mesh, gaze estimation, or a trained model later.
-
-    const { avgLuma, lumaVariance } = computeLumaStats(imageData);
-    const gazeDirection = estimateGazeDirection(imageData, width, height);
-    const blinkDetected = detectBlink(avgLuma, lumaVariance);
-
-    updateBehavioralStats(gazeDirection, blinkDetected);
-
-    const windowDurationSec = (performance.now() - statsWindowStartRef.current) / 1000;
-    const blinkRatePerMin =
-      windowDurationSec > 0 ? (blinkCountRef.current / windowDurationSec) * 60 : 0;
-    const gazeShiftFrequency =
-      windowDurationSec > 0 ? gazeShiftCountRef.current / Math.max(windowDurationSec, 1) : 0;
-
-    const behavioralSignals: BehavioralSignals = {
-      microMovementsScore: clamp(1 - lumaVariance / 5000, 0, 1),
-      gazeShiftFrequency,
-    };
-
-    const blinkStats: BlinkStats = {
-      blinkRatePerMin,
-      lastBlinkAt: blinkDetected ? performance.now() : status.blinkStats.lastBlinkAt,
-    };
+    const blinkRatePerMin = state.blinks.length; // because we keep exactly 60s
+    const gazeShiftFrequency = windowDurationSec > 0 ? state.gazeShifts / Math.max(windowDurationSec, 1) : 0;
 
     const trustScore = computeTrustScore({
       blinkRatePerMin,
-      microMovementsScore: behavioralSignals.microMovementsScore,
+      microMovementsScore,
       gazeShiftFrequency,
     });
 
@@ -162,39 +263,34 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       trustScore,
       isLikelyFake: trustScore < 40,
       gazeDirection,
-      blinkStats,
-      behavioralSignals,
+      blinkStats: {
+        blinkRatePerMin,
+        lastBlinkAt: state.blinks.length > 0 ? state.blinks[state.blinks.length - 1] : null,
+      },
+      behavioralSignals: {
+        microMovementsScore,
+        gazeShiftFrequency,
+      },
     };
 
-    setStatus(nextStatus);
-    if (onStatusChange) {
-      onStatusChange(nextStatus);
+    setStatus((prev) => {
+      // Only fire expensive updates if something significant changed
+      if (Math.abs(prev.trustScore - nextStatus.trustScore) > 2 || nextStatus.isLikelyFake !== prev.isLikelyFake) {
+        if (onStatusChange) onStatusChange(nextStatus);
+      }
+      return nextStatus;
+    });
+
+    if (canvasRef.current && videoRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        canvasRef.current.width = videoRef.current.videoWidth || 640;
+        canvasRef.current.height = videoRef.current.videoHeight || 360;
+        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
     }
 
-    // Optionally log snapshots to backend every ~5 seconds for auditing.
-    // If risk is detected, we attach a small evidence snapshot (JPEG).
-    maybeLogStatus(meetingId, participantId, nextStatus, nextStatus.isLikelyFake ? canvas : undefined);
-  };
-
-  const updateBehavioralStats = (gazeDirection: GazeDirection, blinkDetected: boolean) => {
-    const now = performance.now();
-
-    if (blinkDetected) {
-      blinkCountRef.current += 1;
-    }
-
-    if (lastGazeDirectionRef.current !== 'unknown' && gazeDirection !== lastGazeDirectionRef.current) {
-      gazeShiftCountRef.current += 1;
-    }
-    lastGazeDirectionRef.current = gazeDirection;
-
-    // Reset statistics window every 30 seconds
-    const windowDurationSec = (now - statsWindowStartRef.current) / 1000;
-    if (windowDurationSec > 30) {
-      statsWindowStartRef.current = now;
-      blinkCountRef.current = 0;
-      gazeShiftCountRef.current = 0;
-    }
+    maybeLogStatus(meetingId, participantId, nextStatus, nextStatus.isLikelyFake ? canvasRef.current : undefined);
   };
 
   const riskColor =
@@ -221,7 +317,7 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
         <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
           <div
             className={`h-full ${riskColor} transition-all duration-300`}
-            style={{ width: `${clamp(status.trustScore, 0, 100)}%` }}
+            style={{ width: `${Math.max(0, Math.min(100, status.trustScore))}%` }}
           />
         </div>
 
@@ -233,8 +329,7 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
           <div>
             <div className="text-slate-400">Blink rate</div>
             <div className="font-medium">
-              {status.blinkStats.blinkRatePerMin ? status.blinkStats.blinkRatePerMin.toFixed(1) : '--'}{' '}
-              /min
+              {status.blinkStats.blinkRatePerMin} /min
             </div>
           </div>
           <div>
@@ -275,7 +370,7 @@ async function maybeLogStatus(
   meetingId: string | undefined,
   participantId: string | undefined,
   status: DeepfakeStatus,
-  evidenceCanvas?: HTMLCanvasElement
+  evidenceCanvas?: HTMLCanvasElement | null
 ) {
   if (!meetingId) return;
 
@@ -292,7 +387,7 @@ async function maybeLogStatus(
   try {
     await api.post('/deepfake/log', {
       meetingId,
-      participantId,
+      participantId: participantId || 'unknown',
       trustScore: status.trustScore,
       isLikelyFake: status.isLikelyFake,
       gazeDirection: status.gazeDirection,
@@ -302,14 +397,11 @@ async function maybeLogStatus(
       snapshotJpegDataUrl,
     });
   } catch (err) {
-    // Intentionally ignore logging errors in UI
     console.warn('Deepfake log error', err);
   }
 }
 
 function maybeCaptureEvidenceSnapshot(canvas: HTMLCanvasElement): string | undefined {
-  // Keep it small to fit request size limits.
-  // 320px wide is usually enough as evidence preview.
   const targetW = 320;
   const scale = canvas.width ? targetW / canvas.width : 1;
   const targetH = Math.max(1, Math.round(canvas.height * scale));
@@ -328,91 +420,6 @@ function maybeCaptureEvidenceSnapshot(canvas: HTMLCanvasElement): string | undef
   } catch {
     return undefined;
   }
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function computeLumaStats(imageData: ImageData): { avgLuma: number; lumaVariance: number } {
-  const data = imageData.data;
-  const len = data.length;
-  let sum = 0;
-  let sumSq = 0;
-  const step = 4 * 4; // sample every 4th pixel to reduce work
-
-  for (let i = 0; i < len; i += step) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-    sum += luma;
-    sumSq += luma * luma;
-  }
-
-  const n = len / step;
-  if (!n) {
-    return { avgLuma: 0, lumaVariance: 0 };
-  }
-
-  const avgLuma = sum / n;
-  const variance = sumSq / n - avgLuma * avgLuma;
-  return { avgLuma, lumaVariance: variance };
-}
-
-function estimateGazeDirection(
-  imageData: ImageData,
-  width: number,
-  height: number
-): GazeDirection {
-  // This is a very rough placeholder based on brightness distribution
-  const data = imageData.data;
-  const midX = Math.floor(width / 2);
-  const midY = Math.floor(height / 2);
-
-  let left = 0;
-  let right = 0;
-  let top = 0;
-  let bottom = 0;
-
-  const step = 4 * 8;
-  for (let y = 0; y < height; y += 4) {
-    for (let x = 0; x < width; x += 4) {
-      const idx = (y * width + x) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-
-      if (x < midX) left += luma;
-      else right += luma;
-      if (y < midY) top += luma;
-      else bottom += luma;
-    }
-  }
-
-  const horizDiff = left - right;
-  const vertDiff = top - bottom;
-  const horizThresh = (left + right) * 0.05;
-  const vertThresh = (top + bottom) * 0.05;
-
-  if (Math.abs(horizDiff) < horizThresh && Math.abs(vertDiff) < vertThresh) {
-    return 'center';
-  }
-  if (Math.abs(horizDiff) > Math.abs(vertDiff)) {
-    return horizDiff > 0 ? 'left' : 'right';
-  }
-  return vertDiff > 0 ? 'up' : 'down';
-}
-
-function detectBlink(avgLuma: number, lumaVariance: number): boolean {
-  // Another rough heuristic:
-  // sudden global darkening + reduced variance may indicate a blink.
-  // This should be replaced with eyelid landmarks from a face mesh model.
-  if (avgLuma < 40 && lumaVariance < 800) {
-    return true;
-  }
-  return false;
 }
 
 export default DeepfakeMonitor;
