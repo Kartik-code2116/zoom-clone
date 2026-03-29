@@ -11,6 +11,8 @@ export interface IDeepfakeLog extends Document {
   microMovementsScore: number;
   gazeShiftFrequency: number;
   snapshotJpegDataUrl?: string;
+  hfLabel?: string;
+  hfScore?: number;
   createdAt: Date;
 }
 
@@ -51,6 +53,12 @@ const deepfakeLogSchema = new Schema<IDeepfakeLog>({
   gazeShiftFrequency: {
     type: Number,
     default: 0,
+  },
+  hfLabel: {
+    type: String,
+  },
+  hfScore: {
+    type: Number,
   },
   snapshotJpegDataUrl: {
     type: String,

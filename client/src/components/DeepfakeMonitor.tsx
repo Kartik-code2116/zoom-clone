@@ -21,6 +21,10 @@ export interface DeepfakeStatus {
   gazeDirection: GazeDirection;
   blinkStats: BlinkStats;
   behavioralSignals: BehavioralSignals;
+  hfResult?: {
+    label: string;
+    score: number;
+  };
 }
 
 interface DeepfakeMonitorProps {
@@ -115,7 +119,12 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       microMovementsScore: 1,
       gazeShiftFrequency: 0,
     },
+    hfResult: undefined,
   });
+
+  // Track HF data separately
+  const hfDataRef = useRef<{ label: string; score: number } | undefined>();
+  const lastAnalyzedAtRef = useRef<number>(0);
 
   // Internal counters
   const historyRef = useRef<{
@@ -253,11 +262,34 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
     const blinkRatePerMin = state.blinks.length; // because we keep exactly 60s
     const gazeShiftFrequency = windowDurationSec > 0 ? state.gazeShifts / Math.max(windowDurationSec, 1) : 0;
 
-    const trustScore = computeTrustScore({
+    let behavioralTrustScore = computeTrustScore({
       blinkRatePerMin,
       microMovementsScore,
       gazeShiftFrequency,
     });
+
+    // --- HF AI MODEL INTEGRATION ---
+    // Every 8 seconds, if we have a frame, send it to the backend for HF analysis
+    if (now - lastAnalyzedAtRef.current > 8000 && canvasRef.current) {
+        lastAnalyzedAtRef.current = now;
+        analyzeFrameWithHF(canvasRef.current).then(res => {
+            if (res) hfDataRef.current = res;
+        });
+    }
+
+    // Fuse scores: 40% behavioral, 60% HF AI (if available)
+    let trustScore = behavioralTrustScore;
+    if (hfDataRef.current) {
+        // Map HF Label to a "trust" value: 
+        // If label is "Real", trust = score * 100
+        // If label is "Fake", trust = (1 - score) * 100
+        const hfConfidence = hfDataRef.current.label.toLowerCase() === 'real' 
+            ? hfDataRef.current.score 
+            : 1 - hfDataRef.current.score;
+        
+        const hfTrust = hfConfidence * 100;
+        trustScore = (behavioralTrustScore * 0.4) + (hfTrust * 0.6);
+    }
 
     const nextStatus: DeepfakeStatus = {
       trustScore,
@@ -271,6 +303,7 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
         microMovementsScore,
         gazeShiftFrequency,
       },
+      hfResult: hfDataRef.current,
     };
 
     setStatus((prev) => {
@@ -310,6 +343,21 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       </div>
 
       <div className="px-4 py-3 space-y-2">
+        {status.hfResult ? (
+           <div className="pb-1 border-b border-slate-700/50 mb-1 flex items-center justify-between">
+             <span className="text-[10px] text-slate-400 font-mono uppercase">HF AI MODEL</span>
+             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+               status.hfResult.label.toLowerCase() === 'real' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+             }`}>
+               {status.hfResult.label} {(status.hfResult.score * 100).toFixed(0)}%
+             </span>
+           </div>
+        ) : (
+          <div className="pb-1 border-b border-slate-700/50 mb-1 flex items-center justify-between">
+            <span className="text-[10px] text-slate-400 font-mono uppercase">HF AI MODEL</span>
+            <span className="text-[9px] text-slate-500 italic">Waiting/Token Missing...</span>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <span className="text-xs text-slate-300">Trust score</span>
           <span className="text-sm font-semibold">{Math.round(status.trustScore)}%</span>
@@ -366,6 +414,17 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   );
 };
 
+export async function analyzeFrameWithHF(canvas: HTMLCanvasElement): Promise<{ label: string; score: number } | undefined> {
+    try {
+        const imageBase64 = canvas.toDataURL('image/jpeg', 0.8);
+        const { data } = await api.post('/deepfake/analyze', { imageBase64 });
+        return { label: data.label, score: data.score };
+    } catch (err) {
+        console.warn('HF Analysis error', err);
+        return undefined;
+    }
+}
+
 async function maybeLogStatus(
   meetingId: string | undefined,
   participantId: string | undefined,
@@ -395,6 +454,8 @@ async function maybeLogStatus(
       microMovementsScore: status.behavioralSignals.microMovementsScore,
       gazeShiftFrequency: status.behavioralSignals.gazeShiftFrequency,
       snapshotJpegDataUrl,
+      hfLabel: status.hfResult?.label,
+      hfScore: status.hfResult?.score,
     });
   } catch (err) {
     console.warn('Deepfake log error', err);

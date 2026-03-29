@@ -1,8 +1,46 @@
 import { Router, Response } from 'express';
 import { DeepfakeLog } from '../models/DeepfakeLog';
 import { auth, AuthRequest } from '../middleware/auth';
+import { InferenceClient } from '@huggingface/inference';
+
+const hf = new InferenceClient(process.env.HF_TOKEN);
+const modelId = "prithivMLmods/Deep-Fake-Detector-v2-Model";
 
 const router = Router();
+
+// POST /api/deepfake/analyze - call HuggingFace model
+router.post('/analyze', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { imageBase64 } = req.body;
+    if (!imageBase64) {
+      res.status(400).json({ error: 'imageBase64 is required' });
+      return;
+    }
+
+    // Extract base64 and convert to buffer
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    const buffer = Buffer.from(base64Data, 'base64');
+    const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+
+    const result = await hf.imageClassification({
+      model: modelId,
+      data: arrayBuffer,
+    });
+
+    // The model typically returns a list of labels with scores
+    // Find the one with highest score or map 'Fake'/'Real'
+    const topResult = result[0]; // Assuming the most confident result is first
+    
+    res.json({
+      label: topResult.label,
+      score: topResult.score,
+      allResults: result
+    });
+  } catch (error: any) {
+    console.error('HF Inference error:', error.message);
+    res.status(500).json({ error: 'AI model inference failed' });
+  }
+});
 
 // POST /api/deepfake/log - store a single trust score snapshot
 router.post('/log', auth, async (req: AuthRequest, res: Response): Promise<void> => {
@@ -17,6 +55,8 @@ router.post('/log', auth, async (req: AuthRequest, res: Response): Promise<void>
       microMovementsScore,
       gazeShiftFrequency,
       snapshotJpegDataUrl,
+      hfLabel,
+      hfScore,
     } = req.body;
 
     if (!meetingId || typeof trustScore !== 'number') {
@@ -35,6 +75,8 @@ router.post('/log', auth, async (req: AuthRequest, res: Response): Promise<void>
       microMovementsScore,
       gazeShiftFrequency,
       snapshotJpegDataUrl,
+      hfLabel,
+      hfScore,
     });
 
     res.status(201).json({ log });

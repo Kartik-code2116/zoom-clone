@@ -17,6 +17,8 @@ interface DeepfakeLogItem {
   microMovementsScore: number;
   gazeShiftFrequency: number;
   snapshotJpegDataUrl?: string;
+  hfLabel?: string;
+  hfScore?: number;
   createdAt: string;
 }
 
@@ -52,7 +54,8 @@ const FraudDashboard: React.FC = () => {
       ? logs.reduce((acc, l) => acc + l.trustScore, 0) / logs.length
       : null;
     const last = logs.length ? logs[logs.length - 1] : null;
-    return { minTrust, avgTrust, last };
+    const aiDetections = logs.filter(l => l.hfLabel?.toLowerCase() === 'fake').length;
+    return { minTrust, avgTrust, last, aiDetections };
   }, [logs]);
 
   const downloadJson = () => {
@@ -69,6 +72,7 @@ const FraudDashboard: React.FC = () => {
     return logs.map((log) => ({
       time: new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       trust: Math.round(log.trustScore),
+      hfTrust: log.hfLabel ? (log.hfLabel.toLowerCase() === 'real' ? Math.round(log.hfScore! * 100) : Math.round((1 - log.hfScore!) * 100)) : null,
       isFake: log.isLikelyFake
     }));
   }, [logs]);
@@ -102,10 +106,14 @@ const FraudDashboard: React.FC = () => {
         </div>
 
         {/* Summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-6">
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <div className="text-xs text-white/50">Total snapshots</div>
             <div className="text-2xl font-bold text-white mt-1">{logs.length}</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 font-semibold text-red-400">
+            <div className="text-xs text-white/50">AI Detections (HF)</div>
+            <div className="text-2xl font-bold mt-1">{summary.aiDetections}</div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <div className="text-xs text-white/50">Flagged events</div>
@@ -139,9 +147,19 @@ const FraudDashboard: React.FC = () => {
                     type="monotone" 
                     dataKey="trust" 
                     stroke="#10b981" 
+                    name="Trust Score"
                     strokeWidth={2} 
                     dot={false} 
                     activeDot={{ r: 4 }} 
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="hfTrust" 
+                    stroke="#3b82f6" 
+                    name="HF AI Score"
+                    strokeWidth={1.5} 
+                    strokeDasharray="3 3"
+                    dot={false} 
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -231,6 +249,14 @@ const FraudDashboard: React.FC = () => {
                         <span>Gaze shifts</span>
                         <span className="text-white/90 font-medium">{item.gazeShiftFrequency.toFixed(2)} /s</span>
                       </div>
+                      {item.hfLabel && (
+                        <div className="flex items-center justify-between pt-1 mt-1 border-t border-white/5">
+                          <span className="text-[10px] text-white/40 font-mono">HF AI</span>
+                          <span className={`text-[11px] font-bold ${item.hfLabel?.toLowerCase() === 'real' ? 'text-emerald-400' : (item.hfLabel ? 'text-red-400' : 'text-white/20')}`}>
+                            {item.hfLabel || 'No Data'} {item.hfScore ? `${(item.hfScore * 100).toFixed(0)}%` : ''}
+                          </span>
+                        </div>
+                      )}
                       <div className="pt-2">
                         <span className="inline-flex items-center text-[11px] px-2 py-1 rounded-full bg-red-500/10 text-red-200 border border-red-500/20">
                           DeepFake detected
