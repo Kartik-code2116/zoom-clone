@@ -83,7 +83,8 @@ const JoinMeeting: React.FC = () => {
     setIsJoining(true);
 
     try {
-      const data = await getMeetingToken(meetingId, displayName.trim(), displayName.trim());
+      const identity = user?.id || displayName.trim();
+      const data = await getMeetingToken(meetingId, identity, displayName.trim());
       const token = data.token;
 
       // Stop camera preview

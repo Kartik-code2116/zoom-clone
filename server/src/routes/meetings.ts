@@ -75,7 +75,13 @@ router.post('/:meetingId/token', async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const token = await createLivekitToken(meeting.meetingId, identity, name);
+    // Determine metadata (e.g. if the user is the host)
+    let metadata = '';
+    if (meeting.hostId.toString() === identity) {
+      metadata = JSON.stringify({ isHost: true });
+    }
+
+    const token = await createLivekitToken(meeting.meetingId, identity, name, metadata);
 
     res.json({ token });
   } catch (error) {

@@ -17,15 +17,27 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({ isOpen, onClose }) 
 
   const totalCount = remoteParticipants.length + 1;
 
-  const isParticipantMicEnabled = (participant: RemoteParticipant): boolean => {
+  const isParticipantMicEnabled = (participant: any): boolean => {
     const micPub = participant.getTrackPublication(Track.Source.Microphone);
     return !!micPub && !micPub.isMuted;
   };
 
-  const isParticipantCameraEnabled = (participant: RemoteParticipant): boolean => {
+  const isParticipantCameraEnabled = (participant: any): boolean => {
     const camPub = participant.getTrackPublication(Track.Source.Camera);
     return !!camPub && !camPub.isMuted;
   };
+
+  const isParticipantHost = (participant: any): boolean => {
+    try {
+      if (!participant.metadata) return false;
+      const meta = JSON.parse(participant.metadata);
+      return !!meta.isHost;
+    } catch {
+      return false;
+    }
+  };
+
+  const isLocalHost = isParticipantHost(localParticipant);
 
   return (
     <div
@@ -64,9 +76,11 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({ isOpen, onClose }) 
               {localParticipant.name || localParticipant.identity || 'You'}
               <span className="text-primary/60 text-xs ml-1.5">(You)</span>
             </p>
-            <span className="inline-block text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-md font-medium mt-0.5">
-              Host
-            </span>
+            {isLocalHost && (
+              <span className="inline-block text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-md font-medium mt-0.5">
+                Host
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <span
@@ -88,6 +102,7 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({ isOpen, onClose }) 
         {remoteParticipants.map((participant) => {
           const micOn = isParticipantMicEnabled(participant);
           const camOn = isParticipantCameraEnabled(participant);
+          const isHost = isParticipantHost(participant);
 
           return (
             <div
@@ -103,6 +118,11 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({ isOpen, onClose }) 
                 <p className="text-white/90 text-sm font-medium truncate">
                   {participant.name || participant.identity || 'Participant'}
                 </p>
+                {isHost && (
+                  <span className="inline-block text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-md font-medium mt-0.5">
+                    Host
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-1.5">
                 <span

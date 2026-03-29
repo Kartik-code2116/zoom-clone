@@ -3,7 +3,8 @@ import { AccessToken } from 'livekit-server-sdk';
 export const createLivekitToken = async (
   roomName: string,
   participantIdentity: string,
-  participantName: string
+  participantName: string,
+  metadata?: string
 ): Promise<string> => {
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
@@ -15,6 +16,7 @@ export const createLivekitToken = async (
   const token = new AccessToken(apiKey, apiSecret, {
     identity: participantIdentity,
     name: participantName,
+    metadata,
   });
 
   token.addGrant({
