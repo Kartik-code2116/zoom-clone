@@ -139,4 +139,39 @@ router.get('/me', auth, async (req: AuthRequest, res: Response): Promise<void> =
   }
 });
 
+// PUT /profile - Update user profile
+router.put('/profile', auth, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { name } = req.body;
+
+    if (!name || name.trim().length === 0) {
+      res.status(400).json({ error: 'Name is required' });
+      return;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user!.id,
+      { name: name.trim() },
+      { new: true }
+    ).select('-passwordHash');
+
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    res.json({
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 export default router;

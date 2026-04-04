@@ -12,6 +12,7 @@ import JoinMeeting from './pages/JoinMeeting';
 import Meeting from './pages/Meeting';
 import MeetingSummary from './pages/MeetingSummary';
 import FraudDashboard from './pages/FraudDashboard';
+import ProfilePage from './pages/ProfilePage';
 import NotFound from './pages/NotFound';
 
 const App: React.FC = () => {
@@ -26,6 +27,14 @@ const App: React.FC = () => {
           element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <ProfilePage />
             </ProtectedRoute>
           }
         />

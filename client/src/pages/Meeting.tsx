@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useParams, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LiveKitRoom, VideoConference } from '@livekit/components-react';
+import { LiveKitRoom, VideoConference, useConnectionState } from '@livekit/components-react';
 import '@livekit/components-styles';
 import MeetingToolbar from '../components/MeetingToolbar';
 import ChatPanel from '../components/ChatPanel';
@@ -12,6 +12,8 @@ import MeetingSettingsModal from '../components/MeetingSettingsModal';
 import MeetingHeader from '../components/MeetingHeader';
 import ReactionTray from '../components/ReactionTray';
 import FloatingReaction from '../components/FloatingReaction';
+import FraudDashboardPanel from '../components/FraudDashboardPanel';
+import { showError } from '../utils/toast';
 
 interface LocationState {
   token?: string;
@@ -19,6 +21,23 @@ interface LocationState {
 }
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
+
+// Connection state monitor component
+const ConnectionMonitor: React.FC<{ onError: () => void }> = ({ onError }) => {
+  const connectionState = useConnectionState();
+  
+  useEffect(() => {
+    if (connectionState === 'disconnected') {
+      // Give it a moment to try connecting before showing error
+      const timer = setTimeout(() => {
+        onError();
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [connectionState, onError]);
+  
+  return null;
+};
 
 const Meeting: React.FC = () => {
   const { meetingId } = useParams<{ meetingId: string }>();
@@ -38,6 +57,9 @@ const Meeting: React.FC = () => {
   });
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [activeReaction, setActiveReaction] = useState<string | null>(null);
+  const [fraudDashboardOpen, setFraudDashboardOpen] = useState(false);
+
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem('deepfakeGuardEnabled', String(deepfakeGuardEnabled));
@@ -69,12 +91,50 @@ const Meeting: React.FC = () => {
   }, []);
 
   const handleDisconnected = useCallback(() => {
-    navigate(`/meeting/${meetingId}/summary`);
-  }, [navigate, meetingId]);
+    // Only navigate to summary if we were actually connected (not a connection error)
+    if (!connectionError) {
+      navigate(`/meeting/${meetingId}/summary`);
+    }
+  }, [navigate, meetingId, connectionError]);
+
+  const handleConnectionError = useCallback(() => {
+    setConnectionError('Video server is unavailable. Please ensure LiveKit server is running.');
+    showError('Failed to connect to video server. LiveKit may not be running.');
+  }, []);
 
   // Redirect to join page if no token (after all hooks)
   if (!state?.token || !meetingId) {
     return <Navigate to={`/join/${meetingId || ''}`} replace />;
+  }
+
+  // Show connection error UI
+  if (connectionError) {
+    return (
+      <div className="h-screen w-screen bg-darker flex items-center justify-center">
+        <div className="text-center p-8 max-w-md">
+          <div className="text-6xl mb-4">📹❌</div>
+          <h2 className="text-2xl font-bold text-white mb-4">Connection Failed</h2>
+          <p className="text-white/60 mb-6">{connectionError}</p>
+          <div className="space-y-3">
+            <button
+              onClick={() => navigate(`/join/${meetingId}`)}
+              className="w-full bg-primary hover:bg-primary/90 text-white py-3 rounded-xl font-semibold transition-all"
+            >
+              Back to Join Page
+            </button>
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="w-full bg-white/10 hover:bg-white/20 text-white py-3 rounded-xl font-semibold transition-all"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+          <p className="text-white/40 text-sm mt-6">
+            Tip: Start LiveKit server with <code className="bg-white/10 px-2 py-1 rounded">docker compose up -d</code>
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -87,6 +147,7 @@ const Meeting: React.FC = () => {
         data-lk-theme="default"
         style={{ height: '100%' }}
       >
+        <ConnectionMonitor onError={handleConnectionError} />
         {/* Top meeting header with title, id and connection status */}
         <MeetingHeader meetingId={meetingId} title={state?.userName ? `${state.userName}'s meeting` : undefined} />
 
@@ -144,18 +205,26 @@ const Meeting: React.FC = () => {
           onToggleDeepfakeGuard={() => setDeepfakeGuardEnabled((prev) => !prev)}
           onOpenFraudDashboard={() => {
             setSettingsOpen(false);
-            navigate(`/meeting/${meetingId}/fraud-dashboard`);
+            setFraudDashboardOpen(true);
           }}
+        />
+
+        {/* Fraud Dashboard Side Panel */}
+        <FraudDashboardPanel
+          meetingId={meetingId}
+          isOpen={fraudDashboardOpen}
+          onClose={() => setFraudDashboardOpen(false)}
         />
       </LiveKitRoom>
 
       {/* Overlay when panel is open (mobile) */}
-      {(chatOpen || participantsOpen) && (
+      {(chatOpen || participantsOpen || fraudDashboardOpen) && (
         <div
           className="fixed inset-0 bg-black/40 z-40 sm:hidden"
           onClick={() => {
             setChatOpen(false);
             setParticipantsOpen(false);
+            setFraudDashboardOpen(false);
           }}
         />
       )}

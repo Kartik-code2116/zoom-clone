@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import api from '../services/api';
 import { FaceMesh, Results } from '@mediapipe/face_mesh';
-import { Camera } from '@mediapipe/camera_utils';
 
 type GazeDirection = 'center' | 'left' | 'right' | 'up' | 'down' | 'unknown';
 
@@ -129,8 +128,9 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   meetingId,
   participantId,
 }) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const faceMeshRef = useRef<FaceMesh | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   const [status, setStatus] = useState<DeepfakeStatus>({
     trustScore: 100,
@@ -171,46 +171,92 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   const statsWindowStartRef = useRef<number>(performance.now());
   const BLINK_THRESHOLD = 0.2; // EAR dropped below 0.2 means eyes are closed
 
-  useEffect(() => {
-    let camera: Camera | null = null;
-    let faceMesh: FaceMesh | null = null;
+  const findLocalVideoElement = useCallback(() => {
+    // Try multiple selectors to find the local video
+    const selectors = [
+      '[data-lk-local-participant="true"] video',
+      '.lk-local-participant video',
+      '[data-source-id="camera"] video',
+      'video[data-lk-video-source="true"]',
+      '.lk-participant-tile video'
+    ];
     
-    // We only initialize if the video ref exists
-    if (!videoRef.current) return;
+    for (const selector of selectors) {
+      const videos = document.querySelectorAll(selector);
+      for (const video of videos) {
+        if (video instanceof HTMLVideoElement && video.videoWidth > 0) {
+          return video;
+        }
+      }
+    }
+    
+    // Fallback: find any visible video with a stream
+    const allVideos = document.querySelectorAll('video');
+    for (const video of allVideos) {
+      if (video.videoWidth > 0 && video.readyState >= 2) {
+        return video;
+      }
+    }
+    
+    return null;
+  }, []);
 
-    faceMesh = new FaceMesh({
+  useEffect(() => {
+    // Initialize FaceMesh
+    faceMeshRef.current = new FaceMesh({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
     });
 
-    faceMesh.setOptions({
+    faceMeshRef.current.setOptions({
       maxNumFaces: 1,
       refineLandmarks: true,
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
 
-    faceMesh.onResults((results: Results) => {
+    faceMeshRef.current.onResults((results: Results) => {
       onMediaPipeResults(results);
     });
 
-    camera = new Camera(videoRef.current, {
-      onFrame: async () => {
-        if (videoRef.current && faceMesh) {
-          await faceMesh.send({ image: videoRef.current });
+    // Start frame capture loop
+    let frameCount = 0;
+    const processFrame = async () => {
+      const video = findLocalVideoElement();
+      
+      if (video && faceMeshRef.current && canvasRef.current) {
+        // Draw video to canvas
+        const ctx = canvasRef.current.getContext('2d');
+        if (ctx) {
+          canvasRef.current.width = video.videoWidth || 640;
+          canvasRef.current.height = video.videoHeight || 360;
+          ctx.drawImage(video, 0, 0, canvasRef.current.width, canvasRef.current.height);
+          
+          // Process with FaceMesh every 3rd frame (10fps at 30fps video)
+          frameCount++;
+          if (frameCount % 3 === 0) {
+            await faceMeshRef.current.send({ image: canvasRef.current });
+          }
         }
-      },
-      width: 640,
-      height: 360,
-    });
-
-    camera.start();
+      }
+      
+      animationFrameRef.current = requestAnimationFrame(processFrame);
+    };
+    
+    // Wait a bit for LiveKit to initialize video
+    const timeout = setTimeout(() => {
+      processFrame();
+    }, 2000);
 
     return () => {
-      if (camera) camera.stop();
-      if (faceMesh) faceMesh.close();
+      clearTimeout(timeout);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (faceMeshRef.current) {
+        faceMeshRef.current.close();
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [findLocalVideoElement, meetingId, participantId]);
 
   const onMediaPipeResults = (results: Results) => {
     const now = performance.now();
@@ -340,15 +386,6 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       return nextStatus;
     });
 
-    if (canvasRef.current && videoRef.current) {
-      const ctx = canvasRef.current.getContext('2d');
-      if (ctx) {
-        canvasRef.current.width = videoRef.current.videoWidth || 640;
-        canvasRef.current.height = videoRef.current.videoHeight || 360;
-        ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
-      }
-    }
-
     maybeLogStatus(meetingId, participantId, nextStatus, nextStatus.isLikelyFake ? canvasRef.current : undefined);
   };
 
@@ -444,14 +481,7 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
         )}
       </div>
 
-      {/* Hidden elements used only for analysis */}
-      <video
-        ref={videoRef}
-        className="hidden"
-        autoPlay
-        playsInline
-        muted
-      />
+      {/* Hidden canvas used for analysis */}
       <canvas ref={canvasRef} className="hidden" />
     </div>
   );

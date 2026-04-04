@@ -10,8 +10,15 @@ export const createLivekitToken = async (
   const apiSecret = process.env.LIVEKIT_API_SECRET;
 
   if (!apiKey || !apiSecret) {
+    console.error('[LiveKit] Missing API credentials:', { 
+      hasKey: !!apiKey, 
+      hasSecret: !!apiSecret 
+    });
     throw new Error('LiveKit API key and secret must be set in environment variables');
   }
+
+  // Log first few chars of key for debugging (don't log full secret)
+  console.log('[LiveKit] Generating token with API key:', apiKey.substring(0, 4) + '...');
 
   const token = new AccessToken(apiKey, apiSecret, {
     identity: participantIdentity,
@@ -26,5 +33,8 @@ export const createLivekitToken = async (
     canSubscribe: true,
   });
 
-  return await token.toJwt();
+  const jwt = await token.toJwt();
+  console.log('[LiveKit] Token generated successfully for room:', roomName);
+  
+  return jwt;
 };

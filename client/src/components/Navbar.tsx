@@ -38,6 +38,12 @@ const Navbar: React.FC = () => {
                 >
                   Dashboard
                 </Link>
+                <Link
+                  to="/profile"
+                  className="text-white/70 hover:text-white px-4 py-2 rounded-lg hover:bg-white/5 transition-all duration-200 text-sm font-medium"
+                >
+                  Profile
+                </Link>
                 <div className="flex items-center gap-3 ml-2 pl-4 border-l border-white/10">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">

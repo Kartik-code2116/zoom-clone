@@ -5,6 +5,8 @@ import { getMeeting, getMeetingToken, type Meeting } from '../services/api';
 import { showError } from '../utils/toast';
 import Navbar from '../components/Navbar';
 
+const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
+
 const JoinMeeting: React.FC = () => {
   const { meetingId } = useParams<{ meetingId: string }>();
   const navigate = useNavigate();
@@ -15,7 +17,33 @@ const JoinMeeting: React.FC = () => {
   const [meetingInfo, setMeetingInfo] = useState<Meeting | null>(null);
   const [isLoadingInfo, setIsLoadingInfo] = useState(true);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [liveKitAvailable, setLiveKitAvailable] = useState<boolean | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Check LiveKit availability
+  useEffect(() => {
+    const checkLiveKit = async () => {
+      try {
+        // Try to check if LiveKit port is reachable
+        const wsUrl = LIVEKIT_URL.replace('ws://', 'http://').replace('wss://', 'https://');
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000);
+        
+        await fetch(`${wsUrl}/`, { 
+          method: 'GET',
+          signal: controller.signal,
+          mode: 'no-cors'
+        });
+        clearTimeout(timeout);
+        setLiveKitAvailable(true);
+      } catch {
+        // If fetch fails, LiveKit is likely not running
+        setLiveKitAvailable(false);
+      }
+    };
+    
+    checkLiveKit();
+  }, []);
 
   // Fetch meeting info
   useEffect(() => {
@@ -134,6 +162,18 @@ const JoinMeeting: React.FC = () => {
 
             {/* Join Form */}
             <div className="p-6 sm:p-8">
+              {/* LiveKit Warning */}
+              {liveKitAvailable === false && (
+                <div className="mb-5 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                  <p className="text-yellow-200 text-sm font-medium">
+                    ⚠️ Video server (LiveKit) is not running
+                  </p>
+                  <p className="text-yellow-200/70 text-xs mt-1">
+                    The meeting will not connect. Start it with: docker compose up -d
+                  </p>
+                </div>
+              )}
+
               {/* Meeting info */}
               {!isLoadingInfo && meetingInfo && (
                 <div className="mb-5 p-3 bg-white/[0.02] border border-white/5 rounded-xl">
