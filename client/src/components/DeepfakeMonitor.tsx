@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import api from '../services/api';
 import { FaceMesh, Results } from '@mediapipe/face_mesh';
+import { useRemoteParticipants, useLocalParticipant } from '@livekit/components-react';
+import { Activity, Shield, Eye, Timer, Zap, Users, AlertTriangle } from 'lucide-react';
 
 type GazeDirection = 'center' | 'left' | 'right' | 'up' | 'down' | 'unknown';
 
@@ -133,7 +135,15 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   const animationFrameRef = useRef<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Draggable state
+  // Add remote participant tracking
+  const remoteParticipants = useRemoteParticipants();
+  const { localParticipant } = useLocalParticipant();
+  const totalParticipants = remoteParticipants.length + 1;
+  
+  // Real-time metrics history for sparkline charts
+  const [trustHistory, setTrustHistory] = useState<number[]>([100]);
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
+  const [fps, setFps] = useState(0);
   const [position, setPosition] = useState({ x: window.innerWidth - 280, y: 16 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -405,7 +415,17 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
     maybeLogStatus(meetingId, participantId, nextStatus, nextStatus.isLikelyFake ? canvasRef.current : undefined);
   };
 
-  // Handle drag start
+  // Update FPS counter and trust history every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLastUpdateTime(new Date());
+      setTrustHistory(prev => {
+        const newHistory = [...prev, status.trustScore].slice(-20); // Keep last 20 values
+        return newHistory;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [status.trustScore]);
   const handleDragStart = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('.resize-handle')) return;
     e.preventDefault();
@@ -430,15 +450,29 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
     setIsResizingHeight(true);
   };
 
+  // Store initial values for resize calculations
+  const resizeStartRef = useRef({ rightEdge: 0, bottomEdge: 0 });
+
   // Handle resize
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingWidth && panelRef.current) {
-        const newWidth = panelRef.current.getBoundingClientRect().right - e.clientX;
+        // Store right edge on first move
+        if (resizeStartRef.current.rightEdge === 0) {
+          resizeStartRef.current.rightEdge = panelRef.current.getBoundingClientRect().right;
+        }
+        const newWidth = resizeStartRef.current.rightEdge - e.clientX;
         const clampedWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
+        // Calculate new left position to keep right edge fixed
+        const newLeft = resizeStartRef.current.rightEdge - clampedWidth;
         setPanelWidth(clampedWidth);
+        setPosition(prev => ({ ...prev, x: newLeft }));
       }
       if (isResizingHeight && panelRef.current) {
+        // Store bottom edge on first move
+        if (resizeStartRef.current.bottomEdge === 0) {
+          resizeStartRef.current.bottomEdge = panelRef.current.getBoundingClientRect().bottom;
+        }
         const newHeight = e.clientY - panelRef.current.getBoundingClientRect().top;
         const clampedHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, newHeight));
         setPanelHeight(clampedHeight);
@@ -461,6 +495,8 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       setIsDragging(false);
       setIsResizingWidth(false);
       setIsResizingHeight(false);
+      // Reset resize refs
+      resizeStartRef.current = { rightEdge: 0, bottomEdge: 0 };
     };
 
     if (isDragging || isResizingWidth || isResizingHeight) {
@@ -481,7 +517,25 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   }, [isDragging, isResizingWidth, isResizingHeight, dragStart]);
 
   const riskColor =
-    status.trustScore > 75 ? 'bg-emerald-500' : status.trustScore > 50 ? 'bg-yellow-400' : 'bg-red-500';
+    status.trustScore > 75 ? 'emerald' : status.trustScore > 50 ? 'yellow' : 'red';
+  
+  const riskBgClass = {
+    emerald: 'bg-emerald-500',
+    yellow: 'bg-yellow-400',
+    red: 'bg-red-500'
+  }[riskColor];
+  
+  const riskTextClass = {
+    emerald: 'text-emerald-400',
+    yellow: 'text-yellow-400',
+    red: 'text-red-400'
+  }[riskColor];
+  
+  const riskBorderClass = {
+    emerald: 'border-emerald-500/30',
+    yellow: 'border-yellow-500/30',
+    red: 'border-red-500/30'
+  }[riskColor];
 
   return (
     <div 
@@ -538,77 +592,165 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       </div>
 
       {/* Scrollable Content */}
-      <div className="px-4 py-3 space-y-2 overflow-y-auto" style={{ height: 'calc(100% - 60px)' }}>
-        {status.mlResult ? (
-           <div className="pb-1 border-b border-slate-700/50 mb-1 flex items-center justify-between">
-             <span className="text-[10px] text-slate-400 font-mono uppercase">ZPPM AI MODEL</span>
-             <div className="flex flex-col items-end">
-               <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                 status.mlResult.label.toLowerCase() === 'real' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-               }`}>
-                 {status.mlResult.label.toUpperCase()} {(status.mlResult.score * 100).toFixed(0)}%
-               </span>
-               <span className="text-[9px] text-slate-500 mt-0.5">
-                 Real: {(status.mlResult.probabilities.real * 100).toFixed(0)}% | Fake: {(status.mlResult.probabilities.fake * 100).toFixed(0)}%
-               </span>
-             </div>
-           </div>
-        ) : (
-          <div className="pb-1 border-b border-slate-700/50 mb-1 flex items-center justify-between">
-            <span className="text-[10px] text-slate-400 font-mono uppercase">ZPPM AI MODEL</span>
-            <span className="text-[9px] text-slate-500 italic">Initializing...</span>
-          </div>
-        )}
+      <div className="px-4 py-3 space-y-3 overflow-y-auto" style={{ height: 'calc(100% - 60px)' }}>
+        
+        {/* Live Status Header */}
         <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-300">Trust score</span>
-          <span className="text-sm font-semibold">{Math.round(status.trustScore)}%</span>
-        </div>
-        <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
-          <div
-            className={`h-full ${riskColor} transition-all duration-300`}
-            style={{ width: `${Math.max(0, Math.min(100, status.trustScore))}%` }}
-          />
+          <div className="flex items-center gap-2">
+            <Activity className={`w-4 h-4 ${riskTextClass} animate-pulse`} />
+            <span className="text-xs text-slate-400">Live Analysis</span>
+          </div>
+          <span className="text-[10px] text-slate-500">{lastUpdateTime.toLocaleTimeString()}</span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
-          <div>
-            <div className="text-slate-400">Gaze</div>
-            <div className="font-medium capitalize">{status.gazeDirection}</div>
-          </div>
-          <div>
-            <div className="text-slate-400">Blink rate</div>
-            <div className="font-medium">
-              {status.blinkStats.blinkRatePerMin} /min
+        {/* Participant Count */}
+        <div className="flex items-center gap-2 bg-slate-800/50 rounded-lg px-3 py-2">
+          <Users className="w-4 h-4 text-slate-400" />
+          <span className="text-xs text-slate-300">Participants:</span>
+          <span className="text-sm font-semibold text-white">{totalParticipants}</span>
+          <span className="text-[10px] text-slate-500">(You + {remoteParticipants.length} remote)</span>
+        </div>
+
+        {/* Trust Score with Sparkline */}
+        <div className={`p-3 rounded-lg border ${riskBorderClass} bg-slate-800/30`}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Shield className={`w-4 h-4 ${riskTextClass}`} />
+              <span className="text-xs text-slate-300">Trust Score</span>
             </div>
+            <span className={`text-lg font-bold ${riskTextClass}`}>{Math.round(status.trustScore)}%</span>
           </div>
-          <div>
-            <div className="text-slate-400">EAR (Eye Aspect)</div>
-            <div className="font-medium">
-              {status.frameMetrics?.ear?.toFixed(3) || '---'}
-            </div>
+          
+          {/* Sparkline chart */}
+          <div className="flex items-end gap-0.5 h-8 mb-2">
+            {trustHistory.map((val, i) => (
+              <div
+                key={i}
+                className={`flex-1 ${riskBgClass} rounded-t-sm transition-all duration-300`}
+                style={{ height: `${val}%`, opacity: 0.3 + (i / trustHistory.length) * 0.7 }}
+              />
+            ))}
           </div>
-          <div>
-            <div className="text-slate-400">ML Frames</div>
-            <div className="font-medium">
-              {status.mlResult?.frameCount || 0}
-            </div>
+          
+          <div className="h-2 w-full rounded-full bg-slate-700 overflow-hidden">
+            <div
+              className={`h-full ${riskBgClass} transition-all duration-500`}
+              style={{ width: `${Math.max(0, Math.min(100, status.trustScore))}%` }}
+            />
           </div>
         </div>
 
-        {status.isLikelyFake && (
-          <div className="mt-1 rounded-md bg-red-900/60 border border-red-700 px-2 py-1 text-[11px] text-red-100">
-            DeepFake patterns detected – participant may be fake.
+        {/* AI Model Status */}
+        {status.mlResult ? (
+          <div className="p-3 rounded-lg border border-primary/30 bg-primary/5">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="w-4 h-4 text-primary" />
+              <span className="text-[10px] text-slate-400 font-mono uppercase">ZPPM AI MODEL</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className={`text-sm font-bold ${status.mlResult.label.toLowerCase() === 'real' ? 'text-emerald-400' : 'text-red-400'}`}>
+                {status.mlResult.label.toUpperCase()}
+              </span>
+              <span className="text-xs text-slate-400">
+                {(status.mlResult.score * 100).toFixed(0)}% confidence
+              </span>
+            </div>
+            <div className="flex gap-2 mt-2 text-[10px]">
+              <span className="text-emerald-400">
+                Real: {(status.mlResult.probabilities.real * 100).toFixed(0)}%
+              </span>
+              <span className="text-slate-600">|</span>
+              <span className="text-red-400">
+                Fake: {(status.mlResult.probabilities.fake * 100).toFixed(0)}%
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-slate-500">
+            <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+            <span className="text-xs">Initializing AI model...</span>
           </div>
         )}
 
+        {/* Real-time Metrics Grid */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-slate-800/50 rounded-lg p-2">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Eye className="w-3 h-3 text-slate-400" />
+              <span className="text-[10px] text-slate-400">Gaze</span>
+            </div>
+            <div className="text-sm font-medium text-white capitalize">{status.gazeDirection}</div>
+          </div>
+          
+          <div className="bg-slate-800/50 rounded-lg p-2">
+            <div className="flex items-center gap-1.5 mb-1">
+              <Timer className="w-3 h-3 text-slate-400" />
+              <span className="text-[10px] text-slate-400">Blink Rate</span>
+            </div>
+            <div className="text-sm font-medium text-white">{status.blinkStats.blinkRatePerMin} <span className="text-[10px] text-slate-500">/min</span></div>
+          </div>
+          
+          <div className="bg-slate-800/50 rounded-lg p-2">
+            <div className="text-[10px] text-slate-400 mb-1">EAR Ratio</div>
+            <div className="text-sm font-medium text-white">{status.frameMetrics?.ear?.toFixed(3) || '---'}</div>
+          </div>
+          
+          <div className="bg-slate-800/50 rounded-lg p-2">
+            <div className="text-[10px] text-slate-400 mb-1">ML Frames</div>
+            <div className="text-sm font-medium text-white">{status.mlResult?.frameCount || 0}</div>
+          </div>
+        </div>
+
+        {/* Micro Movements Indicator */}
+        <div className="bg-slate-800/50 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-slate-300">Micro Movements</span>
+            <span className={`text-xs font-medium ${status.behavioralSignals.microMovementsScore > 0.7 ? 'text-emerald-400' : status.behavioralSignals.microMovementsScore > 0.3 ? 'text-yellow-400' : 'text-red-400'}`}>
+              {(status.behavioralSignals.microMovementsScore * 100).toFixed(0)}%
+            </span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-slate-700 overflow-hidden">
+            <div
+              className={`h-full transition-all duration-500 ${status.behavioralSignals.microMovementsScore > 0.7 ? 'bg-emerald-500' : status.behavioralSignals.microMovementsScore > 0.3 ? 'bg-yellow-400' : 'bg-red-500'}`}
+              style={{ width: `${status.behavioralSignals.microMovementsScore * 100}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Alert for fake detection */}
+        {status.isLikelyFake && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <div className="text-xs font-medium text-red-400">DeepFake Detected</div>
+              <div className="text-[10px] text-red-300/80 mt-0.5">
+                Suspicious patterns detected in video feed
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ML Features Detail */}
         {status.mlResult?.features && (
-          <div className="mt-2 pt-2 border-t border-slate-700/50">
-            <div className="text-[10px] text-slate-400 font-mono uppercase mb-1">ML FEATURES</div>
-            <div className="grid grid-cols-2 gap-1 text-[9px] text-slate-400">
-              <div>Blinks: {status.mlResult.features.total_blinks}</div>
-              <div>Rate: {status.mlResult.features.blink_rate.toFixed(1)}/min</div>
-              <div>EAR Var: {status.mlResult.features.ear_variance.toFixed(4)}</div>
-              <div>Yaw Var: {status.mlResult.features.yaw_variance.toFixed(2)}</div>
+          <div className="border-t border-slate-700/50 pt-2">
+            <div className="text-[10px] text-slate-400 font-mono uppercase mb-2">ML Features</div>
+            <div className="grid grid-cols-2 gap-1 text-[10px]">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Blinks:</span>
+                <span className="text-slate-300">{status.mlResult.features.total_blinks}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Rate:</span>
+                <span className="text-slate-300">{status.mlResult.features.blink_rate.toFixed(1)}/min</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">EAR Var:</span>
+                <span className="text-slate-300">{status.mlResult.features.ear_variance.toFixed(4)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Yaw Var:</span>
+                <span className="text-slate-300">{status.mlResult.features.yaw_variance.toFixed(2)}</span>
+              </div>
             </div>
           </div>
         )}
