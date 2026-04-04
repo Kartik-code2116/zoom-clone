@@ -214,6 +214,7 @@ const Meeting: React.FC = () => {
           meetingId={meetingId}
           isOpen={fraudDashboardOpen}
           onClose={() => setFraudDashboardOpen(false)}
+          onToggle={() => setFraudDashboardOpen(prev => !prev)}
         />
       </LiveKitRoom>
 

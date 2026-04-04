@@ -1,6 +1,20 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { 
+  Shield, 
+  X, 
+  RefreshCw, 
+  Play, 
+  Pause, 
+  Users, 
+  AlertTriangle, 
+  Activity,
+  ChevronRight,
+  ExternalLink,
+  Zap
+} from 'lucide-react';
 
 type GazeDirection = 'center' | 'left' | 'right' | 'up' | 'down' | 'unknown';
 
@@ -53,9 +67,11 @@ interface FraudDashboardPanelProps {
   meetingId: string;
   isOpen: boolean;
   onClose: () => void;
+  onToggle?: () => void;
 }
 
-const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, isOpen, onClose }) => {
+const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, isOpen, onClose, onToggle }) => {
+  const navigate = useNavigate();
   const [logs, setLogs] = useState<DeepfakeLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,247 +155,372 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, is
     }));
   }, [logs]);
 
-  if (!isOpen) return null;
+  // Calculate overall risk level
+  const riskLevel = useMemo(() => {
+    const fakeCount = participantStatus.filter(p => p.latestLog.isLikelyFake || p.avgTrustScore < 40).length;
+    if (fakeCount === 0) return { level: 'safe', color: 'emerald', text: 'All Clear' };
+    if (fakeCount === 1) return { level: 'warning', color: 'yellow', text: 'Caution' };
+    return { level: 'danger', color: 'red', text: 'High Risk' };
+  }, [participantStatus]);
 
   return (
-    <div className="fixed right-0 top-0 h-full w-96 bg-slate-900 border-l border-slate-700 shadow-2xl z-50 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-800">
-        <div>
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            🛡️ Fraud Dashboard
-          </h2>
-          <p className="text-xs text-slate-400">Live deepfake detection monitoring</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`p-2 rounded-lg transition-colors ${autoRefresh ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-400'}`}
-            title={autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
-          >
-            {autoRefresh ? '⏵' : '⏸'}
-          </button>
-          <button
-            onClick={fetchLogs}
-            className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-            title="Refresh"
-          >
-            🔄
-          </button>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white transition-colors"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {loading && (
-          <div className="flex items-center justify-center py-8 text-slate-400">
-            <span className="w-5 h-5 border-2 border-slate-600 border-t-primary rounded-full animate-spin mr-2" />
-            Loading...
+    <>
+      {/* Mini Trust Score Widget - Always visible when dashboard is closed */}
+      {!isOpen && (
+        <button
+          onClick={onToggle}
+          className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-2xl px-4 py-2.5 shadow-2xl hover:bg-slate-800/90 transition-all duration-300 group"
+        >
+          <div className={`w-2.5 h-2.5 rounded-full bg-${riskLevel.color}-400 animate-pulse`} />
+          <div className="flex flex-col items-start">
+            <span className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">Trust Score</span>
+            <span className={`text-sm font-bold text-${riskLevel.color}-400`}>
+              {summary.avgTrust !== null ? Math.round(summary.avgTrust) : '--'}%
+            </span>
           </div>
-        )}
-
-        {error && (
-          <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-            {error}
+          <div className="w-8 h-8 bg-slate-800 rounded-xl flex items-center justify-center ml-1 group-hover:bg-slate-700 transition-colors">
+            <Shield className="w-4 h-4 text-primary" />
           </div>
-        )}
+        </button>
+      )}
 
-        {!loading && !error && logs.length === 0 && (
-          <div className="text-center py-8 text-slate-500">
-            <p className="text-4xl mb-2">📊</p>
-            <p>No detection data yet</p>
-            <p className="text-xs mt-1">Deepfake analysis will appear here</p>
-          </div>
-        )}
-
-        {!loading && !error && logs.length > 0 && (
-          <>
-            {/* Participants Status Cards */}
-            <div>
-              <p className="text-xs text-slate-400 mb-2 flex items-center gap-2">
-                👥 Participants ({participantStatus.length})
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-400">
-                  {participantStatus.filter(p => p.isLive).length} active
-                </span>
-              </p>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {participantStatus.map((participant) => (
-                  <div
-                    key={participant.participantId}
-                    className={`p-3 rounded-lg border ${
-                      participant.latestLog.isLikelyFake || participant.avgTrustScore < 40
-                        ? 'bg-red-500/10 border-red-500/30'
-                        : participant.avgTrustScore >= 70
-                        ? 'bg-emerald-500/10 border-emerald-500/30'
-                        : 'bg-yellow-500/10 border-yellow-500/30'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${participant.isLive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
-                        <span className="text-sm font-medium text-white truncate max-w-[120px]">
-                          {participant.participantId}
-                        </span>
-                      </div>
-                      <span className={`text-xs font-bold px-2 py-1 rounded ${
-                        participant.latestLog.mlLabel?.toLowerCase() === 'fake'
-                          ? 'bg-red-500 text-white'
-                          : participant.latestLog.mlLabel?.toLowerCase() === 'real'
-                          ? 'bg-emerald-500 text-white'
-                          : 'bg-slate-600 text-slate-300'
-                      }`}>
-                        {participant.latestLog.mlLabel?.toUpperCase() || 'PENDING'}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-400">Trust Score:</span>
-                      <span className={`font-semibold ${
-                        participant.avgTrustScore >= 70 ? 'text-emerald-400' 
-                        : participant.avgTrustScore >= 40 ? 'text-yellow-400' 
-                        : 'text-red-400'
-                      }`}>
-                        {Math.round(participant.avgTrustScore)}%
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center justify-between text-xs mt-1">
-                      <span className="text-slate-400">ML Confidence:</span>
-                      <span className="text-slate-300">
-                        {participant.latestLog.mlConfidence 
-                          ? `${(participant.latestLog.mlConfidence * 100).toFixed(0)}%`
-                          : '--'}
-                      </span>
-                    </div>
-                    
-                    {participant.fakeDetections > 0 && (
-                      <div className="mt-2 text-[10px] text-red-400">
-                        ⚠️ {participant.fakeDetections} suspicious frame{participant.fakeDetections > 1 ? 's' : ''} detected
-                      </div>
-                    )}
-                    
-                    {participant.latestLog.mlProbabilities && (
-                      <div className="mt-2 flex gap-2 text-[10px]">
-                        <span className="text-emerald-400">
-                          Real: {(participant.latestLog.mlProbabilities.real * 100).toFixed(0)}%
-                        </span>
-                        <span className="text-slate-600">|</span>
-                        <span className="text-red-400">
-                          Fake: {(participant.latestLog.mlProbabilities.fake * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
+      {/* Slide-in Dashboard Panel */}
+      <div 
+        className={`fixed top-0 right-0 h-full z-50 transition-transform duration-500 ease-out ${
+          isOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="h-full w-96 bg-slate-950/95 backdrop-blur-xl border-l border-slate-800 shadow-2xl flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-900/50">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-gradient-to-br from-primary/20 to-primary/5 rounded-xl flex items-center justify-center">
+                <Shield className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-white">Fraud Guard</h2>
+                <p className="text-xs text-slate-400">AI-Powered Detection</p>
               </div>
             </div>
-
-            {/* Overall Stats */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-800 rounded-lg p-3 border border-slate-700">
-                <p className="text-xs text-slate-400">Avg Trust Score</p>
-                <p className={`text-2xl font-bold ${
-                  summary.avgTrust && summary.avgTrust >= 70 ? 'text-emerald-400' 
-                  : summary.avgTrust && summary.avgTrust >= 40 ? 'text-yellow-400' 
-                  : 'text-red-400'
-                }`}>
-                  {summary.avgTrust !== null ? Math.round(summary.avgTrust) : '--'}
-                </p>
-              </div>
-              <div className="bg-slate-800 rounded-lg p-3 border border-slate-700">
-                <p className="text-xs text-slate-400">Suspicious</p>
-                <p className={`text-2xl font-bold ${
-                  participantStatus.filter(p => p.latestLog.isLikelyFake).length === 0 
-                    ? 'text-emerald-400' 
-                    : 'text-red-400'
-                }`}>
-                  {participantStatus.filter(p => p.latestLog.isLikelyFake).length}
-                </p>
-              </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`p-2 rounded-xl transition-all duration-200 ${
+                  autoRefresh 
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
+                    : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
+                }`}
+                title={autoRefresh ? 'Auto-refresh ON' : 'Auto-refresh OFF'}
+              >
+                {autoRefresh ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={fetchLogs}
+                className="p-2 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all duration-200"
+                title="Refresh"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700 hover:text-white transition-all duration-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
+          </div>
 
-            {/* ML Stats */}
-            {summary.mlFrames > 0 && (
-              <div className="bg-gradient-to-r from-indigo-500/10 to-purple-500/10 border border-indigo-500/30 rounded-lg p-3">
-                <p className="text-xs font-medium text-indigo-300 mb-2">🤖 ML Model Detections</p>
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-400">Fake detected:</span>
-                  <span className={`font-semibold ${summary.mlDetections > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                    {summary.mlDetections} / {summary.mlFrames} frames
-                  </span>
-                </div>
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            {loading && (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                <div className="w-10 h-10 border-3 border-slate-700 border-t-primary rounded-full animate-spin mb-4" />
+                <p className="text-sm">Loading detection data...</p>
               </div>
             )}
 
-            {/* Trust Chart */}
-            <div className="bg-slate-800 rounded-lg p-3 border border-slate-700">
-              <p className="text-xs text-slate-400 mb-2">Trust Score History</p>
-              <div className="h-32">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="time" hide />
-                    <YAxis domain={[0, 100]} hide />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }}
-                      labelStyle={{ color: '#94a3b8' }}
-                    />
-                    <Line type="monotone" dataKey="trust" stroke="#10b981" strokeWidth={2} dot={false} />
-                    {summary.mlFrames > 0 && (
-                      <Line type="monotone" dataKey="mlTrust" stroke="#6366f1" strokeWidth={2} dot={false} strokeDasharray="5 5" />
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
+            {error && (
+              <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                {error}
               </div>
-            </div>
+            )}
 
-            {/* Recent Logs */}
-            <div>
-              <p className="text-xs text-slate-400 mb-2">Recent Detections</p>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {logs.slice(-10).reverse().map((log) => (
-                  <div
-                    key={log._id}
-                    className={`p-2 rounded-lg text-xs border ${
-                      log.isLikelyFake || log.trustScore < 40
-                        ? 'bg-red-500/10 border-red-500/30'
-                        : 'bg-slate-800 border-slate-700'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start">
-                      <span className="text-slate-400">
-                        {new Date(log.createdAt).toLocaleTimeString()}
-                      </span>
-                      <span className={`font-semibold ${log.trustScore >= 70 ? 'text-emerald-400' : log.trustScore >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>
-                        {Math.round(log.trustScore)}%
-                      </span>
+            {!loading && !error && logs.length === 0 && (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-slate-800/50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Activity className="w-8 h-8 text-slate-600" />
+                </div>
+                <p className="text-white font-medium mb-1">No detection data yet</p>
+                <p className="text-slate-500 text-sm">Deepfake analysis will appear here once the meeting starts</p>
+              </div>
+            )}
+
+            {!loading && !error && logs.length > 0 && (
+              <>
+                {/* Overall Status Card */}
+                <div className={`p-4 rounded-2xl border bg-gradient-to-br ${
+                  riskLevel.level === 'safe' 
+                    ? 'from-emerald-500/10 to-emerald-600/5 border-emerald-500/30' 
+                    : riskLevel.level === 'warning'
+                    ? 'from-yellow-500/10 to-yellow-600/5 border-yellow-500/30'
+                    : 'from-red-500/10 to-red-600/5 border-red-500/30'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm text-slate-300">Overall Status</span>
+                    <span className={`px-3 py-1 rounded-full text-xs font-bold bg-${riskLevel.color}-500/20 text-${riskLevel.color}-400 border border-${riskLevel.color}-500/30`}>
+                      {riskLevel.text}
+                    </span>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <span className={`text-4xl font-bold text-${riskLevel.color}-400`}>
+                      {summary.avgTrust !== null ? Math.round(summary.avgTrust) : '--'}
+                    </span>
+                    <span className="text-slate-400 mb-1">% avg trust</span>
+                  </div>
+                  <div className="mt-3 h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full bg-${riskLevel.color}-400 transition-all duration-500`}
+                      style={{ width: `${summary.avgTrust || 0}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Participants Status Cards */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm text-slate-400 flex items-center gap-2">
+                      <Users className="w-4 h-4" />
+                      Participants ({participantStatus.length})
+                    </p>
+                    <span className="text-[10px] px-2 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                      {participantStatus.filter(p => p.isLive).length} active
+                    </span>
+                  </div>
+                  <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
+                    {participantStatus.map((participant) => (
+                      <div
+                        key={participant.participantId}
+                        className={`p-4 rounded-xl border transition-all duration-200 ${
+                          participant.latestLog.isLikelyFake || participant.avgTrustScore < 40
+                            ? 'bg-red-500/5 border-red-500/20 hover:border-red-500/40'
+                            : participant.avgTrustScore >= 70
+                            ? 'bg-emerald-500/5 border-emerald-500/20 hover:border-emerald-500/40'
+                            : 'bg-yellow-500/5 border-yellow-500/20 hover:border-yellow-500/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-2.5 h-2.5 rounded-full ${participant.isLive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+                            <span className="text-sm font-medium text-white truncate max-w-[140px]">
+                              {participant.participantId}
+                            </span>
+                          </div>
+                          <span className={`text-xs font-bold px-2.5 py-1 rounded-lg ${
+                            participant.latestLog.mlLabel?.toLowerCase() === 'fake'
+                              ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                              : participant.latestLog.mlLabel?.toLowerCase() === 'real'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-slate-700 text-slate-300 border border-slate-600'
+                          }`}>
+                            {participant.latestLog.mlLabel?.toUpperCase() || 'PENDING'}
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div>
+                            <span className="text-slate-500 block mb-1">Trust Score</span>
+                            <span className={`font-semibold ${
+                              participant.avgTrustScore >= 70 ? 'text-emerald-400' 
+                              : participant.avgTrustScore >= 40 ? 'text-yellow-400' 
+                              : 'text-red-400'
+                            }`}>
+                              {Math.round(participant.avgTrustScore)}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-slate-500 block mb-1">ML Confidence</span>
+                            <span className="text-slate-300">
+                              {participant.latestLog.mlConfidence 
+                                ? `${(participant.latestLog.mlConfidence * 100).toFixed(0)}%`
+                                : '--'}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {participant.fakeDetections > 0 && (
+                          <div className="mt-3 text-xs text-red-400 flex items-center gap-1.5">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            {participant.fakeDetections} suspicious frame{participant.fakeDetections > 1 ? 's' : ''} detected
+                          </div>
+                        )}
+                        
+                        {participant.latestLog.mlProbabilities && (
+                          <div className="mt-3 flex gap-3 text-xs pt-3 border-t border-slate-800">
+                            <span className="text-emerald-400">
+                              Real: {(participant.latestLog.mlProbabilities.real * 100).toFixed(0)}%
+                            </span>
+                            <span className="text-slate-600">|</span>
+                            <span className="text-red-400">
+                              Fake: {(participant.latestLog.mlProbabilities.fake * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+                    <p className="text-xs text-slate-500 mb-1">Min Trust Score</p>
+                    <p className={`text-2xl font-bold ${
+                      summary.minTrust && summary.minTrust >= 70 ? 'text-emerald-400' 
+                      : summary.minTrust && summary.minTrust >= 40 ? 'text-yellow-400' 
+                      : 'text-red-400'
+                    }`}>
+                      {summary.minTrust !== null ? Math.round(summary.minTrust) : '--'}
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+                    <p className="text-xs text-slate-500 mb-1">Suspicious</p>
+                    <p className={`text-2xl font-bold ${
+                      participantStatus.filter(p => p.latestLog.isLikelyFake).length === 0 
+                        ? 'text-emerald-400' 
+                        : 'text-red-400'
+                    }`}>
+                      {participantStatus.filter(p => p.latestLog.isLikelyFake).length}
+                    </p>
+                  </div>
+                </div>
+
+                {/* ML Stats */}
+                {summary.mlFrames > 0 && (
+                  <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/30 rounded-xl p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Zap className="w-4 h-4 text-primary" />
+                      <p className="text-sm font-medium text-primary">AI Model Analysis</p>
                     </div>
-                    <div className="mt-1 text-slate-300">
-                      {log.mlLabel && (
-                        <span className={`mr-2 ${log.mlLabel === 'fake' ? 'text-red-400' : 'text-emerald-400'}`}>
-                          ML: {log.mlLabel.toUpperCase()}
-                        </span>
-                      )}
-                      {log.hfLabel && (
-                        <span className={`${log.hfLabel === 'fake' ? 'text-red-400' : 'text-emerald-400'}`}>
-                          HF: {log.hfLabel.toUpperCase()}
-                        </span>
-                      )}
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-400">Fake detections</span>
+                      <span className={`font-bold ${summary.mlDetections > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {summary.mlDetections} / {summary.mlFrames} frames
+                      </span>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
+                )}
+
+                {/* Trust Chart */}
+                <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+                  <p className="text-sm text-slate-400 mb-3 flex items-center gap-2">
+                    <Activity className="w-4 h-4" />
+                    Trust Score History
+                  </p>
+                  <div className="h-36">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                        <XAxis dataKey="time" hide />
+                        <YAxis domain={[0, 100]} hide />
+                        <Tooltip
+                          contentStyle={{ 
+                            backgroundColor: '#0f172a', 
+                            border: '1px solid #1e293b',
+                            borderRadius: '8px',
+                            padding: '8px 12px'
+                          }}
+                          labelStyle={{ color: '#64748b', fontSize: '12px' }}
+                          itemStyle={{ fontSize: '12px' }}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="trust" 
+                          stroke="#10b981" 
+                          strokeWidth={2} 
+                          dot={false}
+                          activeDot={{ r: 4, fill: '#10b981' }}
+                        />
+                        {summary.mlFrames > 0 && (
+                          <Line 
+                            type="monotone" 
+                            dataKey="mlTrust" 
+                            stroke="#6366f1" 
+                            strokeWidth={2} 
+                            dot={false} 
+                            strokeDasharray="5 5" 
+                          />
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* View Full Dashboard Button */}
+                <button
+                  onClick={() => navigate(`/fraud-dashboard/${meetingId}`)}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-medium transition-all duration-200 border border-slate-700 group"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  View Full Fraud Dashboard
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </button>
+
+                {/* Recent Logs */}
+                <div>
+                  <p className="text-sm text-slate-400 mb-3">Recent Detections</p>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {logs.slice(-10).reverse().map((log) => (
+                      <div
+                        key={log._id}
+                        className={`p-3 rounded-xl text-xs border ${
+                          log.isLikelyFake || log.trustScore < 40
+                            ? 'bg-red-500/5 border-red-500/20'
+                            : 'bg-slate-900/50 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <span className="text-slate-500">
+                            {new Date(log.createdAt).toLocaleTimeString()}
+                          </span>
+                          <span className={`font-bold ${
+                            log.trustScore >= 70 ? 'text-emerald-400' 
+                            : log.trustScore >= 40 ? 'text-yellow-400' 
+                            : 'text-red-400'
+                          }`}>
+                            {Math.round(log.trustScore)}%
+                          </span>
+                        </div>
+                        <div className="mt-1.5 flex gap-3">
+                          {log.mlLabel && (
+                            <span className={`${log.mlLabel === 'fake' ? 'text-red-400' : 'text-emerald-400'}`}>
+                              ML: {log.mlLabel.toUpperCase()}
+                            </span>
+                          )}
+                          {log.hfLabel && (
+                            <span className={`${log.hfLabel === 'fake' ? 'text-red-400' : 'text-emerald-400'}`}>
+                              HF: {log.hfLabel.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+
+      {/* Backdrop for mobile */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 sm:hidden"
+          onClick={onClose}
+        />
+      )}
+    </>
   );
 };
 
