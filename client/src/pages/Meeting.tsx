@@ -192,6 +192,10 @@ const Meeting: React.FC = () => {
           isChatUnread={isChatUnread}
           onOpenSettings={() => setSettingsOpen(true)}
           onToggleReactions={() => setReactionsOpen((prev) => !prev)}
+          fraudDashboardOpen={fraudDashboardOpen}
+          fraudDashboardWidth={fraudDashboardWidth}
+          chatPanelWidth={chatPanelWidth}
+          participantPanelWidth={participantPanelWidth}
         />
 
         {/* Side Panels */}
