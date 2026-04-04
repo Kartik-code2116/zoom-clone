@@ -196,6 +196,7 @@ const Meeting: React.FC = () => {
           fraudDashboardWidth={fraudDashboardWidth}
           chatPanelWidth={chatPanelWidth}
           participantPanelWidth={participantPanelWidth}
+          onToggleFraudDashboard={() => setFraudDashboardOpen(prev => !prev)}
         />
 
         {/* Side Panels */}

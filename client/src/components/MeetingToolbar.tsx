@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { showSuccess } from '../utils/toast';
+import { Shield } from 'lucide-react';
 
 interface MeetingToolbarProps {
   onToggleChat: () => void;
@@ -15,6 +16,7 @@ interface MeetingToolbarProps {
   fraudDashboardWidth?: number;
   chatPanelWidth?: number;
   participantPanelWidth?: number;
+  onToggleFraudDashboard?: () => void;
 }
 
 const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
@@ -29,6 +31,7 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
   fraudDashboardWidth = 384,
   chatPanelWidth = 320,
   participantPanelWidth = 320,
+  onToggleFraudDashboard,
 }) => {
   const navigate = useNavigate();
   const { meetingId } = useParams<{ meetingId: string }>();
@@ -268,6 +271,20 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
         >
           <span className="text-lg">🔗</span>
           <span className="text-[10px] font-medium opacity-70">Invite</span>
+        </button>
+
+        {/* Fraud Guard */}
+        <button
+          onClick={onToggleFraudDashboard}
+          className={`relative group flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl transition-all duration-200 ${
+            fraudDashboardOpen
+              ? 'bg-primary/20 text-primary'
+              : 'bg-white/10 hover:bg-white/15 text-white'
+          }`}
+          title="Fraud Guard"
+        >
+          <Shield className="w-5 h-5" />
+          <span className="text-[10px] font-medium opacity-70">Guard</span>
         </button>
 
         {/* Settings */}

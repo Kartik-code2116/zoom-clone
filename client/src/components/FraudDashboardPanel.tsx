@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { 
+  useRemoteParticipants, 
+  useLocalParticipant 
+} from '@livekit/components-react';
+import { 
   Shield, 
   X, 
   RefreshCw, 
@@ -13,7 +17,9 @@ import {
   Activity,
   ChevronRight,
   ExternalLink,
-  Zap
+  Zap,
+  Clock,
+  Radio
 } from 'lucide-react';
 
 type GazeDirection = 'center' | 'left' | 'right' | 'up' | 'down' | 'unknown';
@@ -86,11 +92,25 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   
+  // Real-time participant tracking from LiveKit
+  const remoteParticipants = useRemoteParticipants();
+  const { localParticipant } = useLocalParticipant();
+  const totalLiveParticipants = remoteParticipants.length + 1;
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
+  
   // Resizable panel state
   const [panelWidth, setPanelWidth] = useState(width);
   const [isResizing, setIsResizing] = useState(false);
   const MIN_WIDTH = 280;
   const MAX_WIDTH = 600;
+
+  // Update timestamp every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLastUpdateTime(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Sync with parent width
   useEffect(() => {
@@ -326,6 +346,38 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
 
             {!loading && !error && logs.length > 0 && (
               <>
+                {/* Live Meeting Stats */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
+                      <span className="text-xs text-slate-400">Live Participants</span>
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <span className="text-2xl font-bold text-white">{totalLiveParticipants}</span>
+                      <span className="text-xs text-slate-500 mb-1">({remoteParticipants.length} remote)</span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-[10px] text-slate-500">Last update: {lastUpdateTime.toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Clock className="w-4 h-4 text-slate-400" />
+                      <span className="text-xs text-slate-400">Tracked Participants</span>
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <span className="text-2xl font-bold text-white">{participantStatus.length}</span>
+                      <span className="text-xs text-slate-500 mb-1">({participantStatus.filter(p => p.isLive).length} active)</span>
+                    </div>
+                    <div className="mt-2 text-[10px] text-slate-500">
+                      From {logs.length} detection logs
+                    </div>
+                  </div>
+                </div>
+
                 {/* Overall Status Card */}
                 <div className={`p-4 rounded-2xl border bg-gradient-to-br ${
                   riskLevel.level === 'safe' 
@@ -359,11 +411,16 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-sm text-slate-400 flex items-center gap-2">
                       <Users className="w-4 h-4" />
-                      Participants ({participantStatus.length})
+                      Participant Analysis ({participantStatus.length})
                     </p>
-                    <span className="text-[10px] px-2 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
-                      {participantStatus.filter(p => p.isLive).length} active
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] px-2 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                        {totalLiveParticipants} in meeting
+                      </span>
+                      <span className="text-[10px] px-2 py-1 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                        {participantStatus.filter(p => p.isLive).length} tracked
+                      </span>
+                    </div>
                   </div>
                   <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
                     {participantStatus.map((participant) => (
