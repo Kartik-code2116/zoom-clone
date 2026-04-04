@@ -4,15 +4,15 @@
 
 ## Table of Contents
 
-1. [System Architecture Overview](#1-system-architecture-overview)
-2. [Infrastructure & Docker Services](#2-infrastructure--docker-services)
-3. [Frontend Route Map](#3-frontend-route-map)
-4. [Authentication Flow](#4-authentication-flow)
-5. [Meeting Creation Flow](#5-meeting-creation-flow)
-6. [Meeting Join Flow (Pre-join Preview)](#6-meeting-join-flow-pre-join-preview)
-7. [In-Meeting Flow (LiveKit + Socket.IO)](#7-in-meeting-flow-livekit--socketio)
-8. [Real-Time Chat Flow (Socket.IO)](#8-real-time-chat-flow-socketio)
-9. [Meeting End & Summary Flow](#9-meeting-end--summary-flow)
+1.  [System Architecture Overview](#1-system-architecture-overview)
+2.  [Infrastructure & Docker Services](#2-infrastructure--docker-services)
+3.  [Frontend Route Map](#3-frontend-route-map)
+4.  [Authentication Flow](#4-authentication-flow)
+5.  [Meeting Creation Flow](#5-meeting-creation-flow)
+6.  [Meeting Join Flow (Pre-join Preview)](#6-meeting-join-flow-pre-join-preview)
+7.  [In-Meeting Flow (LiveKit + Socket.IO)](#7-in-meeting-flow-livekit--socketio)
+8.  [Real-Time Chat Flow (Socket.IO)](#8-real-time-chat-flow-socketio)
+9.  [Meeting End & Summary Flow](#9-meeting-end--summary-flow)
 10. [Database Schema](#10-database-schema)
 11. [API Routes Reference](#11-api-routes-reference)
 12. [Frontend Component Tree](#12-frontend-component-tree)
@@ -27,15 +27,15 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          USER'S BROWSER                                  │
 │                                                                          │
-│   ┌───────────────────────────────────────────────────────────────────┐ │
-│   │             REACT FRONTEND  (Vite + TypeScript + Tailwind)        │ │
-│   │                                                                   │ │
-│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐  │ │
-│   │  │  Auth Pages   │  │  Dashboard   │  │    Meeting Room        │  │ │
-│   │  │ Login/Register│  │ Create/Join  │  │ LiveKit VideoConference│  │ │
-│   │  └──────┬───────┘  └──────┬───────┘  └───────────┬────────────┘  │ │
-│   │         │                 │                        │               │ │
-│   │         └─────────────────┴──────── axios ────────┘               │ │
+│   ┌───────────────────────────────────────────────────────────────────┐  │
+│   │             REACT FRONTEND  (Vite + TypeScript + Tailwind)         │ │
+│   │                                                                    │ │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐    │ │
+│   │  │  Auth Pages   │  │  Dashboard   │  │    Meeting Room        │   │ │
+│   │  │ Login/Register│  │ Create/Join  │  │ LiveKit VideoConference│   │ │
+│   │  └──────┬───────┘  └──────┬───────┘  └───────────┬───────-─────┘   │ │
+│   │         │                 │                      │                 │ │
+│   │         └─────────────────┴──────── axios ───────┘                 │ │
 │   │                           │          (REST)                        │ │
 │   │                    Socket.IO client ──────────────────────────┐    │ │
 │   └───────────────────────────┼───────────────────────────────────┼────┘ │
@@ -43,26 +43,26 @@
                                 │ HTTP / REST API                   │ WebSocket
                                 ▼                                   │
 ┌───────────────────────────────────────────────────────────────────┼──────┐
-│                    NODE.JS / EXPRESS SERVER  (:5000)               │      │
-│                                                                    │      │
-│  ┌──────────────────┐   ┌──────────────────┐                      │      │
-│  │   /api/auth       │   │  /api/meetings   │                      │      │
-│  │  register / login │   │  create / token  │                      │      │
-│  │  logout / me      │   │  list / end      │                      │      │
-│  └────────┬─────────┘   └────────┬─────────┘                      │      │
-│           │                      │                                 │      │
-│           └──────────────────────┼─────────────────────────────── │      │
-│                                  │                                 │      │
-│  ┌────────────────────────────── │ ──────────────────────────────┐│      │
-│  │           JWT Auth Middleware  │                               ││      │
-│  └────────────────────────────── │ ──────────────────────────────┘│      │
-│                                  │                                 │      │
-│  ┌─────────────────┐   ┌─────────┴────────┐   ┌───────────────┐  │      │
-│  │   Mongoose ODM   │   │  LiveKit SDK     │   │  Socket.IO    │◄─┘      │
-│  └────────┬────────┘   └─────────┬────────┘   └───────┬───────┘         │
-└───────────┼─────────────────────┼────────────────────┼───────────────────┘
-            │                     │                     │
-            ▼                     ▼                     ▼
+│                    NODE.JS / EXPRESS SERVER  (:5000)               │     │
+│                                                                    │     │
+│  ┌──────────────────┐   ┌──────────────────┐                       │     │
+│  │   /api/auth       │   │  /api/meetings   │                      │     │
+│  │  register / login │   │  create / token  │                      │     │
+│  │  logout / me      │   │  list / end      │                      │     │
+│  └────────┬─────────┘   └────────┬─────────┘                       │     │
+│           │                      │                                 │     │
+│           └──────────────────────┼───────────────────────────────  │     │
+│                                  │                                 │     │
+│  ┌────────────────────────────── │ ──────────────────────────────┐ │     │
+│  │           JWT Auth Middleware │                               │ │     │
+│  └────────────────────────────── │ ──────────────────────────────┘ │     │
+│                                  │                                 │     │
+│  ┌─────────────────┐   ┌─────────┴────────┐   ┌───────────────┐    │     │
+│  │   Mongoose ODM  │   │  LiveKit SDK     │   │  Socket.IO    │◄--─┘     │
+│  └────────┬────────┘   └─────────┬────────┘   └───────┬───────┘          │
+└───────────┼────────────-─────────┼────────────────────┼──────────────────┘
+            │                      │                    │
+            ▼                      ▼                    ▼
 ┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
 │    MONGODB        │   │  LIVEKIT SERVER  │   │   SOCKET ROOMS   │
 │    (:27017)       │   │  (:7880 ws/tcp)  │   │  (in-memory on   │
@@ -85,7 +85,7 @@ docker-compose.yml
 ┌──────────────────────────────────────────────────────────────┐
 │                     DOCKER COMPOSE                           │
 │                                                              │
-│  ┌─────────────────────────────────────────────────────┐    │
+│  ┌─────────────────────────────────────────────────-────┐    │
 │  │  SERVICE: livekit                                    │    │
 │  │  image: livekit/livekit-server:latest                │    │
 │  │  mode: --dev  (devkey / secret)                      │    │
@@ -96,14 +96,14 @@ docker-compose.yml
 │  │    7881/udp  ── TURN / ICE candidates                │    │
 │  │    7881/tcp  ── TURN / ICE candidates (TCP fallback) │    │
 │  │    7882/tcp  ── RTC TCP (firewall bypass)            │    │
-│  └─────────────────────────────────────────────────────┘    │
+│  └───────────────────────────────────────────────-──────┘    │
 │                                                              │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │  SERVICE: mongodb                                    │    │
-│  │  image: mongo:7                                      │    │
-│  │  Port: 27017                                         │    │
-│  │  Volume: mongo-data:/data/db  (persistent)           │    │
-│  └─────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────┐     │
+│  │  SERVICE: mongodb                                   │     │
+│  │  image: mongo:7                                     │     │
+│  │  Port: 27017                                        │     │
+│  │  Volume: mongo-data:/data/db  (persistent)          │     │
+│  └─────────────────────────────────────────────────────┘     │
 │                                                              │
 │  Named Volume: mongo-data  (survives container restarts)     │
 └──────────────────────────────────────────────────────────────┘
@@ -132,9 +132,9 @@ React Router v6 — Routes defined in App.tsx
 
   Route Guard Logic (ProtectedRoute.tsx):
   ┌─────────────────────────────────────────────────────────┐
-  │  AuthContext.loading === true  →  show <Spinner />       │
-  │  user === null                 →  <Navigate to="/login"> │
-  │  user exists                   →  render {children}      │
+  │  AuthContext.loading === true  →  show <Spinner />      │
+  │  user === null                 →  <Navigate to="/login">│
+  │  user exists                   →  render {children}     │
   └─────────────────────────────────────────────────────────┘
 
   Navigation Paths:
@@ -154,15 +154,15 @@ React Router v6 — Routes defined in App.tsx
 
 ```
 ┌──────────────┐         ┌──────────────────┐          ┌──────────────┐
-│   Browser     │         │  Express Server   │          │   MongoDB    │
-│  (React App)  │         │    (:5000)        │          │  (:27017)    │
+│   Browser    │         │  Express Server  │          │   MongoDB    │
+│  (React App) │         │    (:5000)       │          │  (:27017)    │
 └──────┬───────┘         └────────┬─────────┘          └──────┬───────┘
-       │                          │                            │
+       │                          │                           │
        │  ── REGISTER ──────────────────────────────────────  │
-       │                          │                            │
-       │  POST /api/auth/register  │                            │
-       │  { name, email, password }│                            │
-       │ ─────────────────────────►│                            │
+       │                          │                           │
+       │  POST /api/auth/register  │                          │
+       │  { name, email, password }│                          │
+       │ ─────────────────────────►│                           │
        │                          │  User.findOne({ email })   │
        │                          │ ──────────────────────────►│
        │                          │◄── null (not exists) ──────│
@@ -222,11 +222,11 @@ React Router v6 — Routes defined in App.tsx
 
 ```
 ┌──────────────┐      ┌──────────────────┐      ┌────────────┐      ┌───────────┐
-│  Dashboard   │      │  Express Server   │      │  MongoDB   │      │  nanoid   │
-│  (React)     │      │    (:5000)        │      │  (:27017)  │      │ (library) │
+│  Dashboard   │      │  Express Server  │      │  MongoDB   │      │  nanoid   │
+│  (React)     │      │    (:5000)       │      │  (:27017)  │      │ (library) │
 └──────┬───────┘      └────────┬─────────┘      └─────┬──────┘      └─────┬─────┘
-       │                       │                       │                   │
-       │  User clicks           │                       │                   │
+       │                       │                      │                   │
+       │  User clicks          │                       │                   │
        │  "New Meeting"         │                       │                   │
        │                       │                        │                   │
        │  POST /api/meetings    │                       │                   │
@@ -273,26 +273,26 @@ React Router v6 — Routes defined in App.tsx
 
 ```
 ┌──────────────┐        ┌──────────────────┐        ┌────────────────────┐
-│ JoinMeeting  │        │  Express Server   │        │  LiveKit Server    │
-│  (React)     │        │    (:5000)        │        │  ws://localhost:7880│
+│ JoinMeeting  │        │  Express Server  │        │  LiveKit Server    │
+│  (React)     │        │    (:5000)       │        │  ws://localhost:7880│
 └──────┬───────┘        └────────┬─────────┘        └────────┬───────────┘
        │                         │                           │
        │  (1) Page Load          │                           │
        │  GET /api/meetings/:id  │                           │
-       │ ────────────────────────►│                           │
+       │ ───────────────────────►│                           │
        │◄── Meeting info (title, status) ────────────────────│
        │                         │                           │
        │  (2) Camera Preview     │                           │
-       │  navigator.mediaDevices.getUserMedia({ video:true }) │
-       │  ◄── MediaStream (local camera, muted)               │
-       │  Display in <video> element (mirrored -scale-x-100)  │
+       │  navigator.mediaDevices.getUserMedia({ video:true })│
+       │  ◄── MediaStream (local camera, muted)              │
+       │  Display in <video> element (mirrored -scale-x-100) │
        │                         │                           │
        │  (3) User enters name   │                           │
        │  clicks "Join Meeting"  │                           │
        │                         │                           │
-       │  POST /api/meetings/:id/token                        │
-       │  { identity: name, name: name }                      │
-       │ ────────────────────────►│                           │
+       │  POST /api/meetings/:id/token                       │
+       │  { identity: name, name: name }                     │
+       │ ────────────────────────►│                          │
        │                         │  Meeting.findOne({        │
        │                         │    meetingId: :id         │
        │                         │  })                       │
@@ -303,24 +303,24 @@ React Router v6 — Routes defined in App.tsx
        │                         │    identity: name,        │
        │                         │    name: name             │
        │                         │  )                        │
-       │                         │ ─── AccessToken SDK ──────►│
-       │                         │◄── signed JWT token ───────│
+       │                         │ ─── AccessToken SDK ─────►│
+       │                         │◄── signed JWT token ──────│
        │◄── 200 { token: "..." } │                           │
        │                         │                           │
-       │  (4) Stop camera preview tracks                      │
+       │  (4) Stop camera preview tracks                     │
        │                         │                           │
-       │  (5) navigate(`/meeting/${meetingId}`, {             │
-       │        state: { token, userName }                    │
-       │      })                                              │
-       │  Token travels in React Router location.state        │
-       │  (never touches URL or localStorage)                 │
+       │  (5) navigate(`/meeting/${meetingId}`, {            │
+       │        state: { token, userName }                   │
+       │      })                                             │
+       │  Token travels in React Router location.state       │
+       │  (never touches URL or localStorage)                │
 
   LiveKit Token Grants (server-side):
   ┌────────────────────────────────────────────────┐
-  │  roomJoin:     true  → can join the room        │
-  │  room:         meetingId                        │
-  │  canPublish:   true  → can send audio/video     │
-  │  canSubscribe: true  → can receive audio/video  │
+  │  roomJoin:     true  → can join the room       │
+  │  room:         meetingId                       │
+  │  canPublish:   true  → can send audio/video    │
+  │  canSubscribe: true  → can receive audio/video │
   └────────────────────────────────────────────────┘
 
   Guest Join (no account needed):
@@ -362,36 +362,36 @@ React Router v6 — Routes defined in App.tsx
 
   LiveKit Room UI — @livekit/components-react
   ┌──────────────────────────────────────────────────────────────┐
-  │  <LiveKitRoom serverUrl token connect onDisconnected>         │
-  │    │                                                          │
+  │  <LiveKitRoom serverUrl token connect onDisconnected>        │
+  │    │                                                         │
   │    ├── <VideoConference />   ← handles grid layout,          │
   │    │      (built-in)            speaker detection,           │
-  │    │                            video tiles                   │
-  │    │                                                          │
+  │    │                            video tiles                  │
+  │    │                                                         │
   │    ├── <MeetingTimer />      ← custom component              │
   │    │                            reads sessionStorage join time│
   │    │                                                          │
   │    ├── <MeetingToolbar />    ← custom component              │
   │    │      useLocalParticipant()   mic/cam/screen controls    │
-  │    │      useRoomContext()         leave/disconnect           │
-  │    │                                                          │
+  │    │      useRoomContext()         leave/disconnect          │
+  │    │                                                         │
   │    ├── <ChatPanel />         ← Socket.IO sidebar             │
-  │    │                                                          │
+  │    │                                                         │
   │    └── <ParticipantPanel />  ← useParticipants() hook        │
   └──────────────────────────────────────────────────────────────┘
 
   Toolbar Controls & Keyboard Shortcuts:
-  ┌─────────────────────────────────────────────────────────┐
-  │  Button         Action                    Shortcut       │
-  │  ─────────────────────────────────────────────────────  │
-  │  🎤 Mic         setMicrophoneEnabled()    M key          │
-  │  📹 Camera      setCameraEnabled()        V key          │
-  │  🖥️ Share       setScreenShareEnabled()   (click only)   │
-  │  💬 Chat        toggle ChatPanel sidebar  (click only)   │
-  │  👥 People      toggle ParticipantPanel   (click only)   │
-  │  🔗 Invite      copy join link            (click only)   │
-  │  📞 Leave       room.disconnect()         (click only)   │
-  └─────────────────────────────────────────────────────────┘
+  ┌────────────────────────────────────────────────────────┐
+  │  Button         Action                    Shortcut     │
+  │  ───────────────────────────────────────────────────── │
+  │  🎤 Mic         setMicrophoneEnabled()    M key        │
+  │  📹 Camera      setCameraEnabled()        V key        │
+  │  🖥️ Share       setScreenShareEnabled()   (click only) │
+  │  💬 Chat        toggle ChatPanel sidebar  (click only) │
+  │  👥 People      toggle ParticipantPanel   (click only) │
+  │  🔗 Invite      copy join link            (click only) │
+  │  📞 Leave       room.disconnect()         (click only) │
+  └────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -638,21 +638,39 @@ main.tsx
             ├── <Route path="/meeting/:meetingId"> → <Meeting />
             │       └── <LiveKitRoom serverUrl token onDisconnected>
             │             ├── <VideoConference />    (LiveKit built-in)
+            │             │      └── Resizes when panels open (margin-right adjustment)
             │             ├── <MeetingTimer />
             │             │       └── reads sessionStorage join time
             │             ├── <MeetingToolbar />
             │             │       ├── useLocalParticipant()
             │             │       ├── useRoomContext()
             │             │       ├── Mic / Cam / Screen buttons
-            │             │       ├── Chat / Participants toggles
+            │             │       ├── Chat / Participants / Guard toggles
+            │             │       ├── Draggable handle (when unpinned)
+            │             │       ├── Dynamic positioning (shifts left when panels open)
             │             │       ├── Copy Invite Link
             │             │       └── Leave button
             │             ├── <ChatPanel />
             │             │       ├── Socket.IO client (io())
+            │             │       ├── Resizable from left edge (280-600px)
+            │             │       ├── Draggable when unpinned
             │             │       ├── Messages list
             │             │       └── Input + send button
-            │             └── <ParticipantPanel />
-            │                     └── useParticipants() (LiveKit hook)
+            │             ├── <ParticipantPanel />
+            │             │       ├── useParticipants() (LiveKit hook)
+            │             │       ├── Resizable from left edge (280-600px)
+            │             │       ├── Draggable when unpinned
+            │             │       └── Dynamic host badge via metadata
+            │             ├── <DeepfakeMonitor />
+            │             │       ├── MediaPipe Face Mesh analysis
+            │             │       ├── Resizable (width: 200-400px, height: 300-600px)
+            │             │       ├── Draggable header
+            │             │       ├── Sparkline trust score chart
+            │             │       └── Real-time participant count
+            │             └── <FraudDashboardPanel />
+            │                     ├── Resizable from left edge (280-600px)
+            │                     ├── Real-time participant tracking
+            │                     └── Trust score timeline chart
             │
             └── <Route path="/meeting/:meetingId/summary">
                     └── <MeetingSummary />
@@ -766,6 +784,8 @@ main.tsx
 │                                                                       │
 │  Socket.IO         Client-side chat panel: connect, join-room,        │
 │  (client)          send-message, receive-message events               │
+│                                                                       │
+│  lucide-react      Icon library for UI (Shield, Activity, Users, etc) │
 │                                                                       │
 │  nanoid            Generates short unique meeting IDs (URL-safe)      │
 │                                                                       │

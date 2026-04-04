@@ -20,7 +20,12 @@ A full-featured, production-ready video conferencing platform built with React, 
 - ✅ Pre-join camera preview page
 - ✅ Post-meeting summary page
 - ✅ Dark mode UI with Zoom-style toolbar
-- ✅ Guest join via link (no account required)
+- ✅ Resizable panels — Chat, Participants, and Deepfake Monitor panels can be resized from left edge (280-600px)
+- ✅ Movable panels — Panels can be dragged and repositioned when unpinned from default positions
+- ✅ Dynamic toolbar positioning — Meeting toolbar shifts left when panels open to make room
+- ✅ Real-time participant tracking — Live participant count in Fraud Dashboard and Deepfake Monitor
+- ✅ Sparkline charts — Visual trust score history with real-time updates
+- ✅ Fraud Guard toolbar button — Quick access to Fraud Dashboard from meeting toolbar
 
 ### 👥 Participant Management
 - ✅ Participant panel with mic & camera status indicators
@@ -55,34 +60,50 @@ A full-featured, production-ready video conferencing platform built with React, 
 
 ```
                         ┌─────────────────────────────────┐
-                        │          React Frontend          │
-                        │   (Vite + TypeScript + Tailwind) │
-                        │                                  │
+                        │          React Frontend         │
+                        │   (Vite + TypeScript + Tailwind)│
+                        │                                 │
                         │  ┌────────────┐ ┌─────────────┐ │
                         │  │  LiveKit   │ │  MediaPipe  │ │
                         │  │  Room SDK  │ │ Face Mesh   │ │
                         │  └─────┬──────┘ └──────┬──────┘ │
-                        └────────┼───────────────┼─────────┘
+                        └────────┼───────────────┼────────┘
                                  │               │ TrustScore + Snapshot
                WebSocket (video) │               ▼
                ┌─────────────────┘    ┌──────────────────────┐
-               │                      │   Express Backend     │
-               ▼                      │   (Node + TypeScript) │
-  ┌────────────────────────┐          │                       │
-  │   LiveKit SFU Server   │          │  /api/auth            │
-  │   (Docker, port 7880)  │          │  /api/meetings        │
-  └────────────────────────┘          │  /api/deepfake ───────┼──▶ Python ML Service
-                                      └──────────┬────────────┘    (Port 5001)
+               │                      │   Express Backend    │
+               ▼                      │   (Node + TypeScript)│
+  ┌────────────────────────┐          │                      │
+  │   LiveKit SFU Server   │          │  /api/auth           │
+  │   (Docker, port 7880)  │          │  /api/meetings       │
+  └────────────────────────┘          │  /api/deepfake ──────┼──▶ Python ML Service
+                                      └──────────┬───────────┘    (Port 5001)
                                                  │                        │
-                                         ┌───────▼───────┐          ┌────▼────┐
-                                         │   MongoDB      │          │  ML Pipeline
-                                         │  (port 27017)  │          │ (TF+XGB)
-                                         └───────────────┘          └─────────┘
+                                         ┌───────▼───────┐          ┌────▼───----─┐
+                                         │   MongoDB     │          │  ML Pipeline|
+                                         │  (port 27017) │          │ (TF+XGB)    |
+                                         └───────────────┘          └─────────----┘
 ```
 
----
+## 🎛️ Resizable & Movable UI Components
 
-## 🚀 Quick Start
+The meeting interface features a flexible, customizable layout:
+
+| Component | Resizable (Width) | Resizable (Height) | Movable | Panel Sync |
+|-----------|-------------------|-------------------|---------|------------|
+| `ChatPanel` | ✅ Left edge (280-600px) | ✅ Bottom (when floating) | ✅ Drag handle | ✅ Video & toolbar shift |
+| `ParticipantPanel` | ✅ Left edge (280-600px) | ✅ Bottom (when floating) | ✅ Drag handle | ✅ Video & toolbar shift |
+| `DeepfakeMonitor` | ✅ Left edge (200-400px) | ✅ Bottom | ✅ Drag header | Floating overlay |
+| `FraudDashboardPanel` | ✅ Left edge (280-600px) | ❌ (full height) | ❌ (side docked) | ✅ Video & toolbar shift |
+| `MeetingToolbar` | ❌ | ❌ | ✅ Drag handle | Shifts with panels |
+
+### How It Works
+
+1. **Default Position**: Panels snap to the right edge with full height
+2. **Unpin**: Click the pin button to detach and enable dragging
+3. **Resize**: Drag left edge to adjust width (all panels)
+4. **Move**: Drag header/handle to reposition (floating mode)
+5. **Dynamic Layout**: Video area and toolbar automatically adjust when panels open/close
 
 ### 0. Start the Python ML Service (Required for Deepfake Detection)
 
@@ -143,15 +164,16 @@ zoom-clone/
 ├── client/                       # React frontend (Vite + TS)
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── ParticipantPanel.tsx    # Dynamic host badge (metadata-driven)
-│   │   │   ├── DeepfakeMonitor.tsx     # AI deepfake detection (MediaPipe)
-│   │   │   ├── MeetingToolbar.tsx      # Custom controls toolbar
-│   │   │   ├── ChatPanel.tsx           # Real-time chat (Socket.IO)
+│   │   │   ├── ParticipantPanel.tsx    # Resizable & movable panel with dynamic host badge
+│   │   │   ├── ChatPanel.tsx           # Resizable & movable chat sidebar
+│   │   │   ├── DeepfakeMonitor.tsx     # Resizable, movable overlay with sparkline charts
+│   │   │   ├── FraudDashboardPanel.tsx # Resizable side panel with real-time participant tracking
+│   │   │   ├── MeetingToolbar.tsx      # Custom controls with dynamic positioning
 │   │   │   ├── MeetingHeader.tsx       # Title + connection status
 │   │   │   ├── MeetingSettingsModal.tsx
 │   │   │   └── ...
 │   │   ├── pages/
-│   │   │   ├── Meeting.tsx             # Main meeting room
+│   │   │   ├── Meeting.tsx             # Main meeting room with panel management
 │   │   │   ├── JoinMeeting.tsx         # Pre-join preview + auth identity
 │   │   │   ├── FraudDashboard.tsx      # Host deepfake dashboard + chart
 │   │   │   ├── Dashboard.tsx           # User's meeting list
@@ -170,15 +192,26 @@ zoom-clone/
 │   │   ├── routes/
 │   │   │   ├── auth.ts                 # Register, login, logout, /me
 │   │   │   ├── meetings.ts             # Create, list, token (host metadata), end
-│   │   │   └── deepfake.ts             # /analyze (HuggingFace proxy), /log event, /logs/:meetingId
+│   │   │   └── deepfake.ts             # /analyze, /log event, /logs/:meetingId
 │   │   ├── utils/
 │   │   │   └── livekit.ts              # Token generator (with metadata support)
 │   │   ├── middleware/auth.ts          # JWT validation
 │   │   └── socket.ts                   # Socket.IO chat setup
 │   └── tsconfig.json
 │
+├── ML_model/                     # Python ML Service for deepfake detection
+│   ├── deepfake_detection-Hariom_backend/
+│   │   ├── deepfake_detection/
+│   │   │   └── deepfake_project/       # TensorFlow + XGBoost ML pipeline
+│   │   └── app.py                      # Flask API (port 5001)
+│   └── deepfake_project/
+│       └── feature_extraction/
+│
 ├── docker-compose.yml            # LiveKit SFU + MongoDB
-└── README.md
+├── README.md                     # Project overview & quick start
+├── WORKFLOW.md                   # Detailed architecture & data flow
+├── architecture.md.resolved      # System architecture diagram
+└── .gitignore
 ```
 
 ---
@@ -261,8 +294,8 @@ The `DeepfakeMonitor` component combines local behavioral analysis with server-s
 | Frontend     | React 18, Vite, TypeScript, TailwindCSS         |
 | Video/Audio  | LiveKit SDK + LiveKit SFU (Docker)              |
 | Real-time    | Socket.IO                                       |
-| AI Detection | Custom ML Pipeline (TensorFlow + XGBoost)      |
-| ML Service   | Python Flask (Port 5001)                       |
+| AI Detection | Custom ML Pipeline (TensorFlow + XGBoost)       |
+| ML Service   | Python Flask (Port 5001)                        |
 | Charts       | Recharts                                        |
 | Backend      | Node.js, Express.js, TypeScript                 |
 | Database     | MongoDB (Mongoose)                              |
