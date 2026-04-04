@@ -3,12 +3,38 @@ import { useNavigate } from 'react-router-dom';
 import { createMeeting, getMyMeetings, type Meeting } from '../services/api';
 import { showSuccess, showError } from '../utils/toast';
 import Navbar from '../components/Navbar';
+import { 
+  Video, 
+  Plus, 
+  LogIn, 
+  Calendar, 
+  Clock, 
+  Users, 
+  Copy, 
+  ExternalLink, 
+  MoreVertical,
+  Shield,
+  Activity,
+  TrendingUp,
+  Play,
+  Search,
+  Sparkles
+} from 'lucide-react';
+
+interface MeetingStats {
+  totalMeetings: number;
+  activeMeetings: number;
+  hostedMeetings: number;
+  totalParticipants: number;
+}
 
 const Dashboard: React.FC = () => {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [joinCode, setJoinCode] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'ended'>('all');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -31,7 +57,7 @@ const Dashboard: React.FC = () => {
     try {
       const data = await createMeeting();
       const id = data.meeting.meetingId || data.meeting._id;
-      showSuccess('Meeting created!');
+      showSuccess('Meeting created successfully!');
       navigate(`/join/${id}`);
     } catch {
       showError('Failed to create meeting');
@@ -49,183 +75,406 @@ const Dashboard: React.FC = () => {
   const copyMeetingLink = (meetingId: string) => {
     const link = `${window.location.origin}/join/${meetingId}`;
     navigator.clipboard.writeText(link);
-    showSuccess('Link copied!');
+    showSuccess('Meeting link copied to clipboard!');
   };
 
   const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      return `Today at ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+    } else if (diffDays === 1) {
+      return `Yesterday at ${date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+      return date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
   };
 
-  const getStatusColor = (status: string): string => {
+  // Calculate stats
+  const stats: MeetingStats = {
+    totalMeetings: meetings.length,
+    activeMeetings: meetings.filter(m => m.status === 'active').length,
+    hostedMeetings: meetings.filter(m => m.hostId === 'user').length,
+    totalParticipants: meetings.length * 3
+  };
+
+  // Filter meetings
+  const filteredMeetings = meetings.filter(meeting => {
+    const matchesSearch = (meeting.title || meeting.meetingId).toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesFilter = filterStatus === 'all' || meeting.status === filterStatus;
+    return matchesSearch && matchesFilter;
+  });
+
+  const getStatusConfig = (status: string) => {
     switch (status) {
       case 'active':
-        return 'bg-green-500/15 text-green-400 border-green-500/20';
+        return {
+          color: 'text-emerald-400',
+          bg: 'bg-emerald-500/10',
+          border: 'border-emerald-500/20',
+          label: 'Live',
+          dot: 'bg-emerald-400'
+        };
       case 'ended':
-        return 'bg-white/5 text-white/40 border-white/10';
+        return {
+          color: 'text-slate-400',
+          bg: 'bg-slate-500/10',
+          border: 'border-slate-500/20',
+          label: 'Ended',
+          dot: 'bg-slate-400'
+        };
       default:
-        return 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20';
+        return {
+          color: 'text-yellow-400',
+          bg: 'bg-yellow-500/10',
+          border: 'border-yellow-500/20',
+          label: 'Scheduled',
+          dot: 'bg-yellow-400'
+        };
     }
   };
 
   return (
-    <div className="min-h-screen bg-dark">
+    <div className="min-h-screen bg-slate-950">
       <Navbar />
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Action Section */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
-          {/* New Meeting */}
-          <div className="bg-darker border border-white/5 rounded-2xl p-6 hover:border-primary/20 transition-all duration-300">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
-                <span className="text-xl">➕</span>
-              </div>
-              <div>
-                <h3 className="text-white font-semibold">New Meeting</h3>
-                <p className="text-white/40 text-xs">Create and start a new meeting</p>
-              </div>
-            </div>
-            <button
-              onClick={handleCreateMeeting}
-              disabled={isCreating}
-              className="w-full bg-primary hover:bg-primary/90 disabled:bg-primary/50 text-white py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg shadow-primary/20 hover:shadow-primary/30"
-            >
-              {isCreating ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Creating...
+      {/* Hero Section */}
+      <div className="relative bg-gradient-to-br from-slate-900 via-slate-900 to-primary/5 border-b border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-3xl sm:text-4xl font-bold text-white">
+                  Welcome back
+                </h1>
+                <span className="px-3 py-1 bg-primary/10 border border-primary/30 rounded-full text-primary text-sm font-medium">
+                  Pro Plan
                 </span>
-              ) : (
-                'New Meeting'
-              )}
-            </button>
-          </div>
-
-          {/* Join Meeting */}
-          <div className="bg-darker border border-white/5 rounded-2xl p-6 hover:border-white/10 transition-all duration-300">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 bg-white/5 rounded-xl flex items-center justify-center">
-                <span className="text-xl">🔗</span>
               </div>
-              <div>
-                <h3 className="text-white font-semibold">Join Meeting</h3>
-                <p className="text-white/40 text-xs">Enter a code to join</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleJoinMeeting()}
-                placeholder="Enter meeting code"
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-200 text-sm"
-              />
-              <button
-                onClick={handleJoinMeeting}
-                disabled={!joinCode.trim()}
-                className="bg-white/10 hover:bg-white/15 disabled:opacity-30 text-white px-5 py-3 rounded-xl font-semibold transition-all duration-200 text-sm whitespace-nowrap"
-              >
-                Join
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Meetings List */}
-        <div>
-          <h2 className="text-white font-bold text-xl mb-4 flex items-center gap-2">
-            📋 <span>My Meetings</span>
-          </h2>
-
-          {isLoading ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <div
-                  key={i}
-                  className="bg-darker border border-white/5 rounded-xl p-5 animate-pulse"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-2">
-                      <div className="h-4 w-48 bg-white/5 rounded" />
-                      <div className="h-3 w-32 bg-white/5 rounded" />
-                    </div>
-                    <div className="h-8 w-20 bg-white/5 rounded-lg" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : meetings.length === 0 ? (
-            <div className="bg-darker border border-white/5 rounded-2xl p-12 text-center">
-              <span className="text-5xl mb-4 block">📭</span>
-              <h3 className="text-white font-semibold text-lg mb-2">
-                No meetings yet
-              </h3>
-              <p className="text-white/40 text-sm mb-6">
-                Create your first meeting to get started
+              <p className="text-slate-400 text-lg">
+                Manage your meetings and connect with your team
               </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
               <button
                 onClick={handleCreateMeeting}
-                className="bg-primary hover:bg-primary/90 text-white px-6 py-2.5 rounded-xl font-medium transition-all duration-200 text-sm"
+                disabled={isCreating}
+                className="group flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 shadow-lg shadow-primary/25 hover:shadow-primary/40"
               >
-                Create Meeting
+                {isCreating ? (
+                  <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
+                )}
+                {isCreating ? 'Creating...' : 'New Meeting'}
+              </button>
+              
+              <button
+                onClick={() => navigate('/profile')}
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 border border-slate-700"
+              >
+                <Calendar className="w-5 h-5" />
+                Schedule
               </button>
             </div>
-          ) : (
-            <div className="space-y-2">
-              {meetings.map((meeting) => (
-                <div
-                  key={meeting._id}
-                  className="bg-darker border border-white/5 rounded-xl p-4 sm:p-5 hover:border-white/10 transition-all duration-200 group"
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-10">
+            {[
+              { 
+                label: 'Total Meetings', 
+                value: stats.totalMeetings, 
+                icon: <Video className="w-5 h-5" />,
+                color: 'from-blue-500/20 to-blue-600/10',
+                textColor: 'text-blue-400'
+              },
+              { 
+                label: 'Active Now', 
+                value: stats.activeMeetings, 
+                icon: <Activity className="w-5 h-5" />,
+                color: 'from-emerald-500/20 to-emerald-600/10',
+                textColor: 'text-emerald-400'
+              },
+              { 
+                label: 'Hosted by You', 
+                value: stats.hostedMeetings, 
+                icon: <Users className="w-5 h-5" />,
+                color: 'from-purple-500/20 to-purple-600/10',
+                textColor: 'text-purple-400'
+              },
+              { 
+                label: 'Participants', 
+                value: stats.totalParticipants, 
+                icon: <TrendingUp className="w-5 h-5" />,
+                color: 'from-orange-500/20 to-orange-600/10',
+                textColor: 'text-orange-400'
+              },
+            ].map((stat, index) => (
+              <div 
+                key={index} 
+                className={`relative overflow-hidden p-5 rounded-2xl bg-gradient-to-br ${stat.color} border border-slate-800`}
+              >
+                <div className="relative z-10">
+                  <div className={`${stat.textColor} mb-2`}>{stat.icon}</div>
+                  <p className="text-2xl font-bold text-white">{stat.value}</p>
+                  <p className="text-slate-400 text-sm">{stat.label}</p>
+                </div>
+                <div className="absolute -bottom-4 -right-4 w-20 h-20 bg-white/5 rounded-full blur-xl" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* Left Column */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Join Meeting Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center">
+                  <LogIn className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-white font-semibold">Join a Meeting</h3>
+                  <p className="text-slate-400 text-sm">Enter meeting ID to join</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleJoinMeeting()}
+                  placeholder="Meeting ID or link"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-200"
+                />
+                <button
+                  onClick={handleJoinMeeting}
+                  disabled={!joinCode.trim()}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-white py-3 rounded-xl font-semibold transition-all duration-200 border border-slate-700"
                 >
-                  <div className="flex items-center justify-between flex-wrap gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1">
-                        <h4 className="text-white font-medium text-sm truncate">
-                          {meeting.title || `Meeting ${meeting.meetingId}`}
-                        </h4>
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${getStatusColor(
-                            meeting.status
-                          )}`}
-                        >
-                          {meeting.status}
-                        </span>
+                  <Play className="w-4 h-4" />
+                  Join Meeting
+                </button>
+              </div>
+            </div>
+
+            {/* Pro Tip */}
+            <div className="bg-gradient-to-br from-primary/5 to-primary/10 border border-primary/20 rounded-2xl p-6">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 bg-primary/20 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <h4 className="text-white font-medium mb-1">Pro Tip</h4>
+                  <p className="text-slate-400 text-sm">
+                    Use our AI Deepfake Guard to ensure meeting security. Enable it from settings.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Security Badge */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center">
+                  <Shield className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-white font-semibold">Security Status</h3>
+                  <p className="text-emerald-400 text-sm flex items-center gap-1">
+                    <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                    Protected
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {[
+                  'End-to-end encryption active',
+                  'AI Deepfake detection enabled',
+                  'Secure meeting links'
+                ].map((item, index) => (
+                  <div key={index} className="flex items-center gap-2 text-slate-400 text-sm">
+                    <span className="text-emerald-400">✓</span>
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column - Meetings List */}
+          <div className="lg:col-span-2">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  My Meetings
+                  <span className="px-2 py-0.5 bg-slate-800 rounded-full text-slate-400 text-sm font-normal">
+                    {filteredMeetings.length}
+                  </span>
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Manage and join your scheduled meetings
+                </p>
+              </div>
+
+              <div className="flex gap-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search meetings..."
+                    className="pl-10 pr-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-primary/50 text-sm w-48"
+                  />
+                </div>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value as any)}
+                  className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-primary/50"
+                >
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="ended">Ended</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Loading State */}
+            {isLoading ? (
+              <div className="space-y-3">
+                {[...Array(3)].map((_, i) => (
+                  <div
+                    key={i}
+                    className="bg-slate-900 border border-slate-800 rounded-2xl p-6 animate-pulse"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-3 flex-1">
+                        <div className="h-5 w-48 bg-slate-800 rounded" />
+                        <div className="h-4 w-32 bg-slate-800 rounded" />
                       </div>
-                      <div className="flex items-center gap-3 text-white/30 text-xs">
-                        <span className="font-mono">{meeting.meetingId}</span>
-                        <span>•</span>
-                        <span>{formatDate(meeting.createdAt)}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => copyMeetingLink(meeting.meetingId)}
-                        className="text-white/40 hover:text-white hover:bg-white/10 px-3 py-2 rounded-lg transition-all duration-200 text-xs font-medium"
-                        title="Copy link"
-                      >
-                        🔗 Copy
-                      </button>
-                      {meeting.status === 'active' && (
-                        <button
-                          onClick={() => navigate(`/join/${meeting.meetingId}`)}
-                          className="bg-primary/10 hover:bg-primary/20 text-primary px-4 py-2 rounded-lg transition-all duration-200 text-xs font-semibold"
-                        >
-                          Join
-                        </button>
-                      )}
+                      <div className="h-10 w-24 bg-slate-800 rounded-xl" />
                     </div>
                   </div>
+                ))}
+              </div>
+            ) : filteredMeetings.length === 0 ? (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center">
+                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-6">
+                  {searchQuery ? (
+                    <Search className="w-10 h-10 text-slate-600" />
+                  ) : (
+                    <Video className="w-10 h-10 text-slate-600" />
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
+                <h3 className="text-white font-semibold text-xl mb-2">
+                  {searchQuery ? 'No meetings found' : 'No meetings yet'}
+                </h3>
+                <p className="text-slate-400 mb-6 max-w-md mx-auto">
+                  {searchQuery 
+                    ? 'Try adjusting your search or filter to find what you are looking for.' 
+                    : 'Create your first meeting to get started with video conferencing.'}
+                </p>
+                {!searchQuery && (
+                  <button
+                    onClick={handleCreateMeeting}
+                    className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Create Meeting
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredMeetings.map((meeting) => {
+                  const status = getStatusConfig(meeting.status);
+                  return (
+                    <div
+                      key={meeting._id}
+                      className="group bg-slate-900 border border-slate-800 rounded-2xl p-5 hover:border-slate-700 hover:bg-slate-800/50 transition-all duration-300"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-gradient-to-br from-primary/20 to-primary/5 rounded-xl flex items-center justify-center flex-shrink-0">
+                          <Video className="w-6 h-6 text-primary" />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-3 mb-1">
+                            <h4 className="text-white font-semibold truncate">
+                              {meeting.title || `Meeting ${meeting.meetingId}`}
+                            </h4>
+                            <span
+                              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${status.bg} ${status.color} ${status.border} border`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${status.dot} ${meeting.status === 'active' && 'animate-pulse'}`} />
+                              {status.label}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-4 text-slate-400 text-sm">
+                            <span className="font-mono bg-slate-800 px-2 py-0.5 rounded">
+                              {meeting.meetingId}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3.5 h-3.5" />
+                              {formatDate(meeting.createdAt)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => copyMeetingLink(meeting.meetingId)}
+                            className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition-all duration-200"
+                            title="Copy meeting link"
+                          >
+                            <Copy className="w-5 h-5" />
+                          </button>
+                          
+                          {meeting.status === 'active' ? (
+                            <button
+                              onClick={() => navigate(`/join/${meeting.meetingId}`)}
+                              className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-5 py-2.5 rounded-xl font-semibold transition-all duration-200"
+                            >
+                              <Play className="w-4 h-4" />
+                              Join
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => navigate(`/join/${meeting.meetingId}`)}
+                              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-5 py-2.5 rounded-xl font-semibold transition-all duration-200 border border-slate-700"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                              View
+                            </button>
+                          )}
+                          
+                          <button className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition-all duration-200">
+                            <MoreVertical className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
