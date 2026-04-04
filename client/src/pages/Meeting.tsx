@@ -59,6 +59,8 @@ const Meeting: React.FC = () => {
   const [activeReaction, setActiveReaction] = useState<string | null>(null);
   const [fraudDashboardOpen, setFraudDashboardOpen] = useState(false);
   const [fraudDashboardWidth, setFraudDashboardWidth] = useState(384); // Default width
+  const [chatPanelWidth, setChatPanelWidth] = useState(320); // Default width
+  const [participantPanelWidth, setParticipantPanelWidth] = useState(320); // Default width
 
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
@@ -156,7 +158,9 @@ const Meeting: React.FC = () => {
         <div 
           className="h-full pb-24 pt-10 relative transition-all duration-300"
           style={{ 
-            marginRight: fraudDashboardOpen ? fraudDashboardWidth : 0 
+            marginRight: (fraudDashboardOpen ? fraudDashboardWidth : 0) + 
+                         (chatOpen ? chatPanelWidth : 0) + 
+                         (participantsOpen ? participantPanelWidth : 0)
           }}
         >
           <VideoConference />
@@ -197,10 +201,14 @@ const Meeting: React.FC = () => {
           isOpen={chatOpen}
           onClose={() => setChatOpen(false)}
           onNewMessage={() => { if (!chatOpen) setIsChatUnread(true); }}
+          width={chatPanelWidth}
+          onWidthChange={setChatPanelWidth}
         />
         <ParticipantPanel
           isOpen={participantsOpen}
           onClose={() => setParticipantsOpen(false)}
+          width={participantPanelWidth}
+          onWidthChange={setParticipantPanelWidth}
         />
 
         {/* Settings modal */}

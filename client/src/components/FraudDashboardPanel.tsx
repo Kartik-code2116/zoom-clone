@@ -68,9 +68,18 @@ interface FraudDashboardPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onToggle?: () => void;
+  width?: number;
+  onWidthChange?: (width: number) => void;
 }
 
-const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, isOpen, onClose, onToggle }) => {
+const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ 
+  meetingId, 
+  isOpen, 
+  onClose, 
+  onToggle,
+  width = 384,
+  onWidthChange 
+}) => {
   const navigate = useNavigate();
   const [logs, setLogs] = useState<DeepfakeLogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,10 +87,15 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, is
   const [autoRefresh, setAutoRefresh] = useState(true);
   
   // Resizable panel state
-  const [panelWidth, setPanelWidth] = useState(384); // Default width (24rem = 384px)
+  const [panelWidth, setPanelWidth] = useState(width);
   const [isResizing, setIsResizing] = useState(false);
   const MIN_WIDTH = 280;
   const MAX_WIDTH = 600;
+
+  // Sync with parent width
+  useEffect(() => {
+    setPanelWidth(width);
+  }, [width]);
 
   // Resize handlers
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -93,7 +107,9 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, is
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
       const newWidth = window.innerWidth - e.clientX;
-      setPanelWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
+      const clampedWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
+      setPanelWidth(clampedWidth);
+      onWidthChange?.(clampedWidth);
     };
 
     const handleMouseUp = () => {
@@ -113,7 +129,7 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, is
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
-  }, [isResizing]);
+  }, [isResizing, onWidthChange]);
 
   const fetchLogs = async () => {
     if (!meetingId) return;

@@ -131,6 +131,22 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const faceMeshRef = useRef<FaceMesh | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Draggable state
+  const [position, setPosition] = useState({ x: window.innerWidth - 280, y: 16 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Resizable state
+  const [panelWidth, setPanelWidth] = useState(256);
+  const [panelHeight, setPanelHeight] = useState(420);
+  const [isResizingWidth, setIsResizingWidth] = useState(false);
+  const [isResizingHeight, setIsResizingHeight] = useState(false);
+  const MIN_WIDTH = 200;
+  const MAX_WIDTH = 400;
+  const MIN_HEIGHT = 300;
+  const MAX_HEIGHT = 600;
 
   const [status, setStatus] = useState<DeepfakeStatus>({
     trustScore: 100,
@@ -389,12 +405,102 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
     maybeLogStatus(meetingId, participantId, nextStatus, nextStatus.isLikelyFake ? canvasRef.current : undefined);
   };
 
+  // Handle drag start
+  const handleDragStart = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('.resize-handle')) return;
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX - position.x,
+      y: e.clientY - position.y
+    });
+  };
+
+  // Handle resize start (width)
+  const handleResizeWidthStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizingWidth(true);
+  };
+
+  // Handle resize start (height)
+  const handleResizeHeightStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizingHeight(true);
+  };
+
+  // Handle resize
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isResizingWidth && panelRef.current) {
+        const newWidth = panelRef.current.getBoundingClientRect().right - e.clientX;
+        const clampedWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
+        setPanelWidth(clampedWidth);
+      }
+      if (isResizingHeight && panelRef.current) {
+        const newHeight = e.clientY - panelRef.current.getBoundingClientRect().top;
+        const clampedHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, newHeight));
+        setPanelHeight(clampedHeight);
+      }
+      if (!isDragging) return;
+      
+      const newX = e.clientX - dragStart.x;
+      const newY = e.clientY - dragStart.y;
+      
+      const maxX = window.innerWidth - (panelRef.current?.offsetWidth || 256);
+      const maxY = window.innerHeight - (panelRef.current?.offsetHeight || 420);
+      
+      setPosition({
+        x: Math.max(0, Math.min(newX, maxX)),
+        y: Math.max(0, Math.min(newY, maxY))
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setIsResizingWidth(false);
+      setIsResizingHeight(false);
+    };
+
+    if (isDragging || isResizingWidth || isResizingHeight) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      if (isResizingWidth) document.body.style.cursor = 'ew-resize';
+      else if (isResizingHeight) document.body.style.cursor = 'ns-resize';
+      else document.body.style.cursor = 'grabbing';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isDragging, isResizingWidth, isResizingHeight, dragStart]);
+
   const riskColor =
     status.trustScore > 75 ? 'bg-emerald-500' : status.trustScore > 50 ? 'bg-yellow-400' : 'bg-red-500';
 
   return (
-    <div className="fixed top-4 right-4 z-40 w-64 rounded-lg bg-slate-900/80 text-white shadow-lg border border-slate-700 backdrop-blur-sm">
-      <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+    <div 
+      ref={panelRef}
+      className={`fixed z-40 rounded-lg bg-slate-900/80 text-white shadow-lg border border-slate-700 backdrop-blur-sm ${
+        isDragging ? 'shadow-primary/20' : ''
+      }`}
+      style={{
+        left: position.x,
+        top: position.y,
+        width: panelWidth,
+        height: panelHeight
+      }}
+    >
+      {/* Drag Handle Header */}
+      <div 
+        onMouseDown={handleDragStart}
+        className="px-4 py-3 border-b border-slate-700 flex items-center justify-between cursor-grab active:cursor-grabbing"
+      >
         <div className="text-sm font-semibold">DeepFake Guard</div>
         <span
           className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -405,7 +511,34 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
         </span>
       </div>
 
-      <div className="px-4 py-3 space-y-2">
+      {/* Resize Handle - Left Edge (Width) */}
+      <div
+        onMouseDown={handleResizeWidthStart}
+        className={`resize-handle absolute left-0 top-14 bottom-0 w-3 cursor-ew-resize z-20 flex items-center justify-center group ${
+          isResizingWidth ? 'bg-primary/20' : 'hover:bg-primary/10'
+        }`}
+        title="Drag to resize width"
+      >
+        <div className={`w-0.5 h-6 rounded-full transition-colors ${
+          isResizingWidth ? 'bg-primary' : 'bg-slate-600 group-hover:bg-primary'
+        }`} />
+      </div>
+
+      {/* Resize Handle - Bottom Edge (Height) */}
+      <div
+        onMouseDown={handleResizeHeightStart}
+        className={`resize-handle absolute left-0 right-0 bottom-0 h-3 cursor-ns-resize z-20 flex items-center justify-center group ${
+          isResizingHeight ? 'bg-primary/20' : 'hover:bg-primary/10'
+        }`}
+        title="Drag to resize height"
+      >
+        <div className={`w-6 h-0.5 rounded-full transition-colors ${
+          isResizingHeight ? 'bg-primary' : 'bg-slate-600 group-hover:bg-primary'
+        }`} />
+      </div>
+
+      {/* Scrollable Content */}
+      <div className="px-4 py-3 space-y-2 overflow-y-auto" style={{ height: 'calc(100% - 60px)' }}>
         {status.mlResult ? (
            <div className="pb-1 border-b border-slate-700/50 mb-1 flex items-center justify-between">
              <span className="text-[10px] text-slate-400 font-mono uppercase">ZPPM AI MODEL</span>

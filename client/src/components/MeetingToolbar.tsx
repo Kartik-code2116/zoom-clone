@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
 import { showSuccess } from '../utils/toast';
@@ -11,6 +11,10 @@ interface MeetingToolbarProps {
   isChatUnread: boolean;
   onOpenSettings: () => void;
   onToggleReactions?: () => void;
+  fraudDashboardOpen?: boolean;
+  fraudDashboardWidth?: number;
+  chatPanelWidth?: number;
+  participantPanelWidth?: number;
 }
 
 const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
@@ -21,11 +25,78 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
   isChatUnread,
   onOpenSettings,
   onToggleReactions,
+  fraudDashboardOpen = false,
+  fraudDashboardWidth = 384,
+  chatPanelWidth = 320,
+  participantPanelWidth = 320,
 }) => {
   const navigate = useNavigate();
   const { meetingId } = useParams<{ meetingId: string }>();
   const room = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
+  
+  // Draggable state
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isDefaultPosition, setIsDefaultPosition] = useState(true);
+
+  // Calculate right margin based on open panels
+  const getRightMargin = () => {
+    let margin = 0;
+    if (fraudDashboardOpen) margin += fraudDashboardWidth;
+    if (chatOpen) margin += chatPanelWidth;
+    if (participantsOpen) margin += participantPanelWidth;
+    return margin;
+  };
+
+  const panelMargin = getRightMargin();
+  const handleDragStart = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return; // Don't drag when clicking buttons
+    e.preventDefault();
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX - position.x,
+      y: e.clientY - position.y
+    });
+  };
+
+  // Handle drag
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging) return;
+      
+      const newX = e.clientX - dragStart.x;
+      const newY = e.clientY - dragStart.y;
+      
+      // Constrain to viewport
+      const maxX = window.innerWidth - (toolbarRef.current?.offsetWidth || 400);
+      const maxY = window.innerHeight - (toolbarRef.current?.offsetHeight || 100);
+      
+      setPosition({
+        x: Math.max(0, Math.min(newX, maxX)),
+        y: Math.max(0, Math.min(newY, maxY))
+      });
+      setIsDefaultPosition(false);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'grabbing';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+    };
+  }, [isDragging, dragStart]);
 
   const toggleMic = useCallback(async () => {
     await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
@@ -77,7 +148,32 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
   }, [toggleMic, toggleCamera]);
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-40 bg-darker/95 backdrop-blur-md border-t border-white/5">
+    <div 
+      ref={toolbarRef}
+      className={`z-50 bg-darker/95 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl transition-shadow duration-200 ${
+        isDragging ? 'shadow-primary/20 cursor-grabbing' : 'hover:shadow-xl'
+      } ${isDefaultPosition ? 'absolute bottom-0 left-0 right-0' : 'fixed'}`}
+      style={isDefaultPosition ? { 
+        right: panelMargin,
+        transition: 'right 0.3s ease-out'
+      } : {
+        left: position.x,
+        top: position.y,
+        right: 'auto',
+        bottom: 'auto'
+      }}
+    >
+      {/* Drag Handle */}
+      <div
+        onMouseDown={handleDragStart}
+        className={`w-full h-3 cursor-grab active:cursor-grabbing flex items-center justify-center ${
+          isDefaultPosition ? 'hidden' : ''
+        }`}
+        title="Drag to move toolbar"
+      >
+        <div className="w-8 h-1 bg-slate-600 rounded-full" />
+      </div>
+      
       <div className="flex items-center justify-center gap-2 sm:gap-3 px-4 py-3">
         {/* Mic Toggle */}
         <button
@@ -195,6 +291,20 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
           <span className="text-lg">📞</span>
           <span className="text-[10px] font-bold">Leave</span>
         </button>
+
+        {/* Reset Position - only show when moved */}
+        {!isDefaultPosition && (
+          <button
+            onClick={() => {
+              setPosition({ x: 0, y: 0 });
+              setIsDefaultPosition(true);
+            }}
+            className="absolute -top-8 right-2 px-3 py-1 bg-primary/90 hover:bg-primary text-white text-xs rounded-lg shadow-lg transition-all duration-200"
+            title="Reset position"
+          >
+            ↺ Reset
+          </button>
+        )}
       </div>
     </div>
   );
