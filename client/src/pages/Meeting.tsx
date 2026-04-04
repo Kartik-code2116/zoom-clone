@@ -58,6 +58,7 @@ const Meeting: React.FC = () => {
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [activeReaction, setActiveReaction] = useState<string | null>(null);
   const [fraudDashboardOpen, setFraudDashboardOpen] = useState(false);
+  const [fraudDashboardWidth, setFraudDashboardWidth] = useState(384); // Default width
 
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
@@ -152,7 +153,12 @@ const Meeting: React.FC = () => {
         <MeetingHeader meetingId={meetingId} title={state?.userName ? `${state.userName}'s meeting` : undefined} />
 
         {/* Video Conference Area */}
-        <div className="h-full pb-24 pt-10 relative">
+        <div 
+          className="h-full pb-24 pt-10 relative transition-all duration-300"
+          style={{ 
+            marginRight: fraudDashboardOpen ? fraudDashboardWidth : 0 
+          }}
+        >
           <VideoConference />
 
           {/* Floating reaction animation */}
@@ -215,6 +221,8 @@ const Meeting: React.FC = () => {
           isOpen={fraudDashboardOpen}
           onClose={() => setFraudDashboardOpen(false)}
           onToggle={() => setFraudDashboardOpen(prev => !prev)}
+          width={fraudDashboardWidth}
+          onWidthChange={setFraudDashboardWidth}
         />
       </LiveKitRoom>
 

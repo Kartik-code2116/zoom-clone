@@ -76,6 +76,44 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, is
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  
+  // Resizable panel state
+  const [panelWidth, setPanelWidth] = useState(384); // Default width (24rem = 384px)
+  const [isResizing, setIsResizing] = useState(false);
+  const MIN_WIDTH = 280;
+  const MAX_WIDTH = 600;
+
+  // Resize handlers
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = window.innerWidth - e.clientX;
+      setPanelWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
 
   const fetchLogs = async () => {
     if (!meetingId) return;
@@ -189,8 +227,22 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({ meetingId, is
         className={`fixed top-0 right-0 h-full z-50 transition-transform duration-500 ease-out ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
+        style={{ width: panelWidth }}
       >
-        <div className="h-full w-96 bg-slate-950/95 backdrop-blur-xl border-l border-slate-800 shadow-2xl flex flex-col">
+        {/* Resize Handle */}
+        <div
+          onMouseDown={handleResizeStart}
+          className={`absolute left-0 top-0 bottom-0 w-4 cursor-ew-resize z-10 flex items-center justify-center group ${
+            isResizing ? 'bg-primary/20' : 'hover:bg-primary/10'
+          }`}
+          title="Drag to resize"
+        >
+          <div className={`w-1 h-8 rounded-full transition-colors ${
+            isResizing ? 'bg-primary' : 'bg-slate-600 group-hover:bg-primary'
+          }`} />
+        </div>
+
+        <div className="h-full w-full bg-slate-950/95 backdrop-blur-xl border-l border-slate-800 shadow-2xl flex flex-col ml-4">
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 bg-slate-900/50">
             <div className="flex items-center gap-3">
