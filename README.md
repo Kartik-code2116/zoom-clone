@@ -9,6 +9,9 @@ A full-featured, production-ready video conferencing platform built with React, 
 ### 🧑‍💻 Core Conferencing
 - ✅ User registration & login (JWT + httpOnly cookies)
 - ✅ Instant meeting creation with unique shareable invite links
+- ✅ **Schedule for Later** — Schedule meetings for a future date and time
+- ✅ **Share Button** — Native Web Share API integration (mobile) with clipboard fallback (desktop)
+- ✅ **Meeting Details Modal** — View meeting statistics, deepfake detections, evidence snapshots
 - ✅ LiveKit-powered real-time video & audio conferencing
 - ✅ Grid layout with automatic speaker detection
 - ✅ Mute/unmute mic & camera controls
@@ -276,6 +279,11 @@ The `DeepfakeMonitor` component combines local behavioral analysis with server-s
 | GET    | `/api/meetings/:id`              | Get meeting info (public)           |
 | POST   | `/api/meetings/:id/token`        | Get LiveKit token (host metadata)   |
 | POST   | `/api/meetings/:id/end`          | End meeting (host only)             |
+
+**Meeting Status Values:**
+- `active` — Meeting is live and joinable
+- `ended` — Meeting has been terminated
+- `scheduled` — Meeting scheduled for future date/time
 
 ### Deepfake
 | Method | Endpoint                        | Description                          |

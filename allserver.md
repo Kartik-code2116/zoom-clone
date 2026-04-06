@@ -48,7 +48,7 @@ This document explains how all servers work together in the Zoom-Clone video con
   - Chat system
 
 ### 2. Node.js Backend API
-- **Port**: `http://localhost:3001`
+- **Port**: `http://localhost:5000`
 - **Role**: Business logic, authentication, ML proxy, database
 - **Tech**: Express.js, TypeScript, MongoDB, Socket.IO
 - **API Endpoints**:
@@ -56,11 +56,15 @@ This document explains how all servers work together in the Zoom-Clone video con
   POST /api/auth/register      - User registration
   POST /api/auth/login         - User login
   GET  /api/auth/me            - Get current user
-  POST /api/meetings           - Create meeting
+  POST /api/meetings           - Create meeting (instant or scheduled)
+  GET  /api/meetings           - List user's meetings
+  GET  /api/meetings/:id       - Get meeting info
   POST /api/meetings/:id/token - Get LiveKit token
+  POST /api/meetings/:id/end   - End meeting (host only)
   POST /api/deepfake/analyze   - Analyze frame for deepfake
   POST /api/deepfake/log       - Log detection results
   GET  /api/deepfake/logs/:id  - Get detection history
+  GET  /api/deepfake/health    - Health check
   ```
 
 ### 3. Python ML Service
@@ -162,15 +166,15 @@ This document explains how all servers work together in the Zoom-Clone video con
 
 ### Server Environment (server/.env)
 ```env
-PORT=3001
+PORT=5000
 MONGODB_URI=mongodb://localhost:27017/zoom-clone
 JWT_SECRET=your_random_secret
 CLIENT_URL=http://localhost:5173
 
 # LiveKit Cloud
-LIVEKIT_API_KEY=APIFeCwrTYTucz6
-LIVEKIT_API_SECRET=hBBCNtgSG4lk8pbXAvNRGLrkQRi2Kz8sDS0iYcN7bbH
-LIVEKIT_URL=wss://zoom-clone-2jil3ca0.livekit.cloud
+LIVEKIT_API_KEY=devkey
+LIVEKIT_API_SECRET=secret
+LIVEKIT_URL=ws://localhost:7880
 
 # Python ML Service
 PYTHON_ML_SERVICE_URL=http://localhost:5001
@@ -180,11 +184,11 @@ PYTHON_ML_SERVICE_URL=http://localhost:5001
 ```typescript
 proxy: {
   '/api': {
-    target: 'http://localhost:3001',
+    target: 'http://localhost:5000',
     changeOrigin: true,
   },
   '/socket.io': {
-    target: 'http://localhost:3001',
+    target: 'http://localhost:5000',
     ws: true,
   },
 }
@@ -205,10 +209,10 @@ python ml_service.py
 ### 2. Start Node.js Backend
 ```bash
 cd server
-$env:PORT=3001
+$env:PORT=5000
 npm run dev
-# Runs on http://localhost:3001
-# Should show: "Connected to MongoDB" and "Server running on port 3001"
+# Runs on http://localhost:5000
+# Should show: "Connected to MongoDB" and "Server running on port 5000"
 ```
 
 ### 3. Start React Frontend
@@ -221,7 +225,7 @@ npm run dev
 ### 4. Verify All Services
 Open browser and check:
 - `https://localhost:5173` - Frontend (should show login page)
-- `http://localhost:3001/api/auth/me` - Backend (should return 401 or user data)
+- `http://localhost:5000/api/auth/me` - Backend (should return 401 or user data)
 - `http://localhost:5001/health` - ML Service (should return health status)
 
 ---

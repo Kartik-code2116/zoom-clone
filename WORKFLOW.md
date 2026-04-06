@@ -265,6 +265,24 @@ React Router v6 — Routes defined in App.tsx
   │    endedAt: undefined                     │
   │  }                                        │
   └──────────────────────────────────────────┘
+
+  Creating a Scheduled Meeting:
+  ┌──────────────────────────────────────────────────────────┐
+  │  Dashboard → "Schedule" button                             │
+  │  ↓                                                       │
+  │  Modal opens with:                                       │
+  │    - Meeting name input                                  │
+  │    - Date picker (min: today)                            │
+  │    - Time picker                                         │
+  │  ↓                                                       │
+  │  POST /api/meetings                                      │
+  │  { title, scheduledDate: "2026-04-10T14:30:00Z" }         │
+  │  ↓                                                       │
+  │  Server creates meeting with status: "scheduled"         │
+  │  Returns meeting details                                 │
+  │  ↓                                                       │
+  │  Dashboard refreshes, showing "Scheduled" badge           │
+  └──────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -527,7 +545,9 @@ MongoDB Collections (Mongoose Models)
   │  meetingId   String      unique, nanoid() generated     │
   │  hostId      ObjectId    ref: 'User' (FK)               │
   │  title       String      default: "Instant Meeting"     │
-  │  status      String      enum: ['active', 'ended']      │
+  │  status      String      enum: ['active', 'ended',     │
+  │                            'scheduled']               │
+  │  scheduledDate Date        optional, for scheduled      │
   │  createdAt   Date        default: Date.now              │
   │  endedAt     Date        optional, set when ended       │
   └────────────────────────────────────────────────────────┘
@@ -579,6 +599,7 @@ MEETING ROUTES  /api/meetings
 │  Method  Path              Auth?       Description                 │
 │  ──────────────────────────────────────────────────────────────── │
 │  POST    /                 Yes(host)   Create a new meeting        │
+│           Body: { title?, scheduledDate? }                          │
 │  GET     /                 Yes(host)   List host's meetings        │
 │  GET     /:meetingId       No(public)  Get meeting info            │
 │  POST    /:meetingId/token No(public)  Generate LiveKit JWT token  │
