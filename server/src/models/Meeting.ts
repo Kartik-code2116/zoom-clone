@@ -4,9 +4,10 @@ export interface IMeeting extends Document {
   meetingId: string;
   hostId: Types.ObjectId;
   title: string;
-  status: 'active' | 'ended';
+  status: 'active' | 'ended' | 'scheduled';
   createdAt: Date;
   endedAt?: Date;
+  scheduledDate?: Date;
 }
 
 const meetingSchema = new Schema<IMeeting>({
@@ -26,7 +27,7 @@ const meetingSchema = new Schema<IMeeting>({
   },
   status: {
     type: String,
-    enum: ['active', 'ended'],
+    enum: ['active', 'ended', 'scheduled'],
     default: 'active',
   },
   createdAt: {
@@ -34,6 +35,9 @@ const meetingSchema = new Schema<IMeeting>({
     default: Date.now,
   },
   endedAt: {
+    type: Date,
+  },
+  scheduledDate: {
     type: Date,
   },
 });

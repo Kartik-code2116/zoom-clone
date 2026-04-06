@@ -20,7 +20,7 @@ interface LocationState {
   userName?: string;
 }
 
-const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'ws://localhost:7880';
+const LIVEKIT_URL = 'wss://zoom-clone-2jil3ca0.livekit.cloud';
 
 // Connection state monitor component
 const ConnectionMonitor: React.FC<{ onError: () => void }> = ({ onError }) => {

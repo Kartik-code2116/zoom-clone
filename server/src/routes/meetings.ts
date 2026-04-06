@@ -9,12 +9,14 @@ const router = Router();
 // POST / - Create meeting (auth required)
 router.post('/', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { title } = req.body;
+    const { title, scheduledDate } = req.body;
 
     const meeting = await Meeting.create({
       meetingId: nanoid(),
       hostId: req.user!.id,
       title: title || 'Instant Meeting',
+      status: scheduledDate ? 'scheduled' : 'active',
+      scheduledDate: scheduledDate ? new Date(scheduledDate) : undefined,
     });
 
     res.status(201).json({ meeting });

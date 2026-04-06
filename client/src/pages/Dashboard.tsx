@@ -4,6 +4,7 @@ import { createMeeting, getMyMeetings, type Meeting } from '../services/api';
 import api from '../services/api';
 import { showSuccess, showError } from '../utils/toast';
 import Navbar from '../components/Navbar';
+import { useAuth } from '../context/AuthContext';
 import { 
   Video, 
   Plus, 
@@ -26,7 +27,8 @@ import {
   AlertTriangle,
   Eye,
   BarChart3,
-  Camera
+  Camera,
+  Share2
 } from 'lucide-react';
 
 interface MeetingStats {
@@ -37,12 +39,18 @@ interface MeetingStats {
 }
 
 const Dashboard: React.FC = () => {
+  const { user } = useAuth();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [newMeetingTitle, setNewMeetingTitle] = useState('');
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [joinCode, setJoinCode] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'ended'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'ended' | 'scheduled'>('all');
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [showMeetingDetails, setShowMeetingDetails] = useState(false);
   const [meetingStats, setMeetingStats] = useState<{
@@ -76,14 +84,36 @@ const Dashboard: React.FC = () => {
   };
 
   const handleCreateMeeting = async () => {
+    if (!newMeetingTitle.trim()) return;
     setIsCreating(true);
     try {
-      const data = await createMeeting();
+      const data = await createMeeting(newMeetingTitle.trim());
       const id = data.meeting.meetingId || data.meeting._id;
+      setShowCreateModal(false);
+      setNewMeetingTitle('');
       showSuccess('Meeting created successfully!');
       navigate(`/join/${id}`);
     } catch {
       showError('Failed to create meeting');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleScheduleMeeting = async () => {
+    if (!newMeetingTitle.trim() || !scheduledDate || !scheduledTime) return;
+    setIsCreating(true);
+    try {
+      const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}`);
+      const data = await createMeeting(newMeetingTitle.trim(), scheduledDateTime.toISOString());
+      setShowScheduleModal(false);
+      setNewMeetingTitle('');
+      setScheduledDate('');
+      setScheduledTime('');
+      showSuccess('Meeting scheduled successfully!');
+      fetchMeetings();
+    } catch {
+      showError('Failed to schedule meeting');
     } finally {
       setIsCreating(false);
     }
@@ -126,6 +156,27 @@ const Dashboard: React.FC = () => {
     showSuccess('Meeting link copied to clipboard!');
   };
 
+  const shareMeeting = async (meetingId: string, title?: string) => {
+    const link = `${window.location.origin}/join/${meetingId}`;
+    const shareData = {
+      title: title || 'Zoom Clone Meeting',
+      text: `Join my meeting: ${title || 'Zoom Clone Meeting'}`,
+      url: link,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+        showSuccess('Meeting shared!');
+      } catch {
+        // User cancelled or share failed
+        copyMeetingLink(meetingId);
+      }
+    } else {
+      copyMeetingLink(meetingId);
+    }
+  };
+
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     const now = new Date();
@@ -150,7 +201,7 @@ const Dashboard: React.FC = () => {
   const stats: MeetingStats = {
     totalMeetings: meetings.length,
     activeMeetings: meetings.filter(m => m.status === 'active').length,
-    hostedMeetings: meetings.filter(m => m.hostId === 'user').length,
+    hostedMeetings: meetings.filter(m => m.hostId === user?.id || m.hostId === user?._id).length,
     totalParticipants: meetings.length * 3
   };
 
@@ -179,13 +230,21 @@ const Dashboard: React.FC = () => {
           label: 'Ended',
           dot: 'bg-slate-400'
         };
-      default:
+      case 'scheduled':
         return {
           color: 'text-yellow-400',
           bg: 'bg-yellow-500/10',
           border: 'border-yellow-500/20',
           label: 'Scheduled',
           dot: 'bg-yellow-400'
+        };
+      default:
+        return {
+          color: 'text-slate-400',
+          bg: 'bg-slate-500/10',
+          border: 'border-slate-500/20',
+          label: 'Unknown',
+          dot: 'bg-slate-400'
         };
     }
   };
@@ -214,7 +273,7 @@ const Dashboard: React.FC = () => {
 
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={handleCreateMeeting}
+                onClick={() => setShowCreateModal(true)}
                 disabled={isCreating}
                 className="group flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-50 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 shadow-lg shadow-primary/25 hover:shadow-primary/40"
               >
@@ -227,7 +286,7 @@ const Dashboard: React.FC = () => {
               </button>
               
               <button
-                onClick={() => navigate('/profile')}
+                onClick={() => { setShowScheduleModal(true); setNewMeetingTitle(''); setScheduledDate(''); setScheduledTime(''); }}
                 className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-300 border border-slate-700"
               >
                 <Calendar className="w-5 h-5" />
@@ -398,6 +457,7 @@ const Dashboard: React.FC = () => {
                 >
                   <option value="all">All</option>
                   <option value="active">Active</option>
+                  <option value="scheduled">Scheduled</option>
                   <option value="ended">Ended</option>
                 </select>
               </div>
@@ -534,6 +594,153 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Create Meeting Modal */}
+      {showCreateModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowCreateModal(false)}
+        >
+          <div 
+            className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white">Create New Meeting</h3>
+              <button 
+                onClick={() => setShowCreateModal(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">
+                  Meeting Name
+                </label>
+                <input
+                  type="text"
+                  value={newMeetingTitle}
+                  onChange={(e) => setNewMeetingTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateMeeting()}
+                  placeholder="Enter meeting name..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-200"
+                  autoFocus
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold transition-all border border-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateMeeting}
+                  disabled={!newMeetingTitle.trim() || isCreating}
+                  className="flex-1 py-3 px-4 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
+                >
+                  {isCreating ? (
+                    <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Plus className="w-5 h-5" />
+                  )}
+                  {isCreating ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Meeting Modal */}
+      {showScheduleModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowScheduleModal(false)}
+        >
+          <div 
+            className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white">Schedule Meeting</h3>
+              <button 
+                onClick={() => setShowScheduleModal(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">
+                  Meeting Name
+                </label>
+                <input
+                  type="text"
+                  value={newMeetingTitle}
+                  onChange={(e) => setNewMeetingTitle(e.target.value)}
+                  placeholder="Enter meeting name..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-200"
+                  autoFocus
+                />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">
+                    Date
+                  </label>
+                  <input
+                    type="date"
+                    value={scheduledDate}
+                    onChange={(e) => setScheduledDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-200"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-400 mb-2">
+                    Time
+                  </label>
+                  <input
+                    type="time"
+                    value={scheduledTime}
+                    onChange={(e) => setScheduledTime(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all duration-200"
+                  />
+                </div>
+              </div>
+              
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowScheduleModal(false)}
+                  className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-semibold transition-all border border-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleScheduleMeeting}
+                  disabled={!newMeetingTitle.trim() || !scheduledDate || !scheduledTime || isCreating}
+                  className="flex-1 py-3 px-4 bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
+                >
+                  {isCreating ? (
+                    <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Calendar className="w-5 h-5" />
+                  )}
+                  {isCreating ? 'Scheduling...' : 'Schedule'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Meeting Details Modal */}
       {showMeetingDetails && selectedMeeting && (
@@ -744,10 +951,11 @@ const Dashboard: React.FC = () => {
                 {selectedMeeting.status === 'active' ? 'Join Meeting' : 'View Meeting'}
               </button>
               <button
-                onClick={() => { copyMeetingLink(selectedMeeting.meetingId); setShowMeetingDetails(false); }}
-                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl font-semibold transition-all border border-slate-700"
+                onClick={() => shareMeeting(selectedMeeting.meetingId, selectedMeeting.title)}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-3 rounded-xl font-semibold transition-all"
               >
-                <Copy className="w-4 h-4" />
+                <Share2 className="w-4 h-4" />
+                Share
               </button>
             </div>
           </div>

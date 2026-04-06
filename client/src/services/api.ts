@@ -20,9 +20,10 @@ export interface Meeting {
   meetingId: string;
   hostId: string;
   title: string;
-  status: 'active' | 'ended';
+  status: 'active' | 'ended' | 'scheduled';
   createdAt: string;
   endedAt?: string;
+  scheduledDate?: string;
 }
 
 export interface MeetingToken {
@@ -83,8 +84,8 @@ export const getCurrentUser = async (): Promise<User> => {
 
 // --- Meetings API ---
 
-export const createMeeting = async (): Promise<MeetingResponse> => {
-  const { data } = await api.post<MeetingResponse>('/meetings');
+export const createMeeting = async (title?: string, scheduledDate?: string): Promise<MeetingResponse> => {
+  const { data } = await api.post<MeetingResponse>('/meetings', { title, scheduledDate });
   return data;
 };
 
