@@ -49,6 +49,7 @@ const FraudDashboard: React.FC = () => {
   const [logs, setLogs] = useState<DeepfakeLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedSnapshot, setExpandedSnapshot] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchLogs() {
@@ -316,13 +317,21 @@ const FraudDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-white/10 bg-black/30 overflow-hidden flex items-center justify-center min-h-40">
+                    <div className="rounded-xl border border-white/10 bg-black/30 overflow-hidden flex items-center justify-center min-h-40 cursor-pointer group relative"
+                         onClick={() => item.snapshotJpegDataUrl && setExpandedSnapshot(item.snapshotJpegDataUrl)}>
                       {item.snapshotJpegDataUrl ? (
-                        <img
-                          src={item.snapshotJpegDataUrl}
-                          alt="Evidence snapshot"
-                          className="w-full h-full object-cover"
-                        />
+                        <>
+                          <img
+                            src={item.snapshotJpegDataUrl}
+                            alt="Evidence snapshot"
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                          />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                            <span className="opacity-0 group-hover:opacity-100 text-white text-sm font-medium px-3 py-1 bg-black/50 rounded-full">
+                              Click to expand
+                            </span>
+                          </div>
+                        </>
                       ) : (
                         <div className="text-white/40 text-xs px-4 text-center">
                           No snapshot available. Enable DeepFake Guard and allow logging to capture evidence images.
@@ -334,6 +343,29 @@ const FraudDashboard: React.FC = () => {
               ))}
           </div>
         </section>
+
+        {/* Expanded Snapshot Modal */}
+        {expandedSnapshot && (
+          <div 
+            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+            onClick={() => setExpandedSnapshot(null)}
+          >
+            <div className="relative max-w-4xl max-h-[90vh]">
+              <img 
+                src={expandedSnapshot} 
+                alt="Evidence snapshot expanded"
+                className="max-w-full max-h-[85vh] rounded-lg shadow-2xl"
+              />
+              <button
+                onClick={() => setExpandedSnapshot(null)}
+                className="absolute -top-10 right-0 text-white/70 hover:text-white text-sm flex items-center gap-1"
+              >
+                <span>Close</span>
+                <span className="text-lg">×</span>
+              </button>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

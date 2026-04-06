@@ -326,6 +326,21 @@ def fallback_analysis(
     }
 
 
+@app.route("/", methods=["GET"])
+def root():
+    """Root endpoint with service info"""
+    return jsonify({
+        "service": "Deepfake Detection ML Service",
+        "version": "1.0",
+        "endpoints": [
+            {"path": "/health", "method": "GET", "description": "Health check"},
+            {"path": "/analyze-frame", "method": "POST", "description": "Analyze video frame for deepfake"},
+            {"path": "/reset-session", "method": "POST", "description": "Reset analysis session"},
+            {"path": "/session-stats/<session_id>", "method": "GET", "description": "Get session statistics"},
+        ]
+    })
+
+
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint"""

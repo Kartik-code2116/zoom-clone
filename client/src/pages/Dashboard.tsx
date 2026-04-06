@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createMeeting, getMyMeetings, type Meeting } from '../services/api';
+import api from '../services/api';
 import { showSuccess, showError } from '../utils/toast';
 import Navbar from '../components/Navbar';
 import { 
@@ -18,7 +19,14 @@ import {
   TrendingUp,
   Play,
   Search,
-  Sparkles
+  Sparkles,
+  X,
+  FileText,
+  Database,
+  AlertTriangle,
+  Eye,
+  BarChart3,
+  Camera
 } from 'lucide-react';
 
 interface MeetingStats {
@@ -35,6 +43,21 @@ const Dashboard: React.FC = () => {
   const [joinCode, setJoinCode] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'ended'>('all');
+  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [showMeetingDetails, setShowMeetingDetails] = useState(false);
+  const [meetingStats, setMeetingStats] = useState<{
+    totalLogs: number;
+    deepfakeDetections: number;
+    avgTrustScore: number;
+    minTrustScore: number;
+    snapshotsWithEvidence: number;
+    uniqueParticipants: string[];
+    mlFramesAnalyzed: number;
+  } | null>(null);
+  const [meetingLogs, setMeetingLogs] = useState<any[]>([]);
+  const [expandedSnapshot, setExpandedSnapshot] = useState<string | null>(null);
+  const [showSnapshots, setShowSnapshots] = useState(false);
+  const [loadingStats, setLoadingStats] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -63,6 +86,31 @@ const Dashboard: React.FC = () => {
       showError('Failed to create meeting');
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const fetchMeetingStats = async (meetingId: string) => {
+    setLoadingStats(true);
+    try {
+      const { data } = await api.get<{ logs: any[] }>(`/deepfake/logs/${meetingId}`);
+      const logs = data.logs || [];
+      
+      const stats = {
+        totalLogs: logs.length,
+        deepfakeDetections: logs.filter((l: any) => l.isLikelyFake || l.trustScore < 40).length,
+        avgTrustScore: logs.length ? Math.round(logs.reduce((acc: number, l: any) => acc + l.trustScore, 0) / logs.length) : 0,
+        minTrustScore: logs.length ? Math.min(...logs.map((l: any) => l.trustScore)) : 100,
+        snapshotsWithEvidence: logs.filter((l: any) => l.snapshotJpegDataUrl).length,
+        uniqueParticipants: [...new Set(logs.map((l: any) => l.participantId).filter(Boolean))] as string[],
+        mlFramesAnalyzed: logs.filter((l: any) => l.mlLabel).length,
+      };
+      
+      setMeetingStats(stats);
+      setMeetingLogs(logs.filter((l: any) => l.snapshotJpegDataUrl).slice(0, 6));
+    } catch (err) {
+      setMeetingStats(null);
+    } finally {
+      setLoadingStats(false);
     }
   };
 
@@ -464,7 +512,16 @@ const Dashboard: React.FC = () => {
                             </button>
                           )}
                           
-                          <button className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition-all duration-200">
+                          <button 
+                            onClick={() => { 
+                              setSelectedMeeting(meeting); 
+                              setShowMeetingDetails(true); 
+                              setShowSnapshots(false);
+                              fetchMeetingStats(meeting.meetingId);
+                            }}
+                            className="p-2.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-xl transition-all duration-200"
+                            title="Meeting details"
+                          >
                             <MoreVertical className="w-5 h-5" />
                           </button>
                         </div>
@@ -477,6 +534,248 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Meeting Details Modal */}
+      {showMeetingDetails && selectedMeeting && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowMeetingDetails(false)}
+        >
+          <div 
+            className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-6 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-white">Meeting Details</h3>
+              <button 
+                onClick={() => setShowMeetingDetails(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+              {/* Stats Summary Cards */}
+              {meetingStats && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-slate-800/50 rounded-xl">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Eye className="w-4 h-4 text-primary" />
+                      <span className="text-xs text-slate-400">AI Analysis</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{meetingStats.mlFramesAnalyzed}</div>
+                    <div className="text-[10px] text-slate-500">frames analyzed</div>
+                  </div>
+                  
+                  <div className={`p-3 rounded-xl ${meetingStats.deepfakeDetections > 0 ? 'bg-red-500/10 border border-red-500/20' : 'bg-emerald-500/10 border border-emerald-500/20'}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertTriangle className={`w-4 h-4 ${meetingStats.deepfakeDetections > 0 ? 'text-red-400' : 'text-emerald-400'}`} />
+                      <span className="text-xs text-slate-400">Detections</span>
+                    </div>
+                    <div className={`text-lg font-bold ${meetingStats.deepfakeDetections > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {meetingStats.deepfakeDetections}
+                    </div>
+                    <div className="text-[10px] text-slate-500">deepfake alerts</div>
+                  </div>
+                  
+                  <div 
+                    className="p-3 bg-slate-800/50 rounded-xl cursor-pointer hover:bg-slate-700/50 transition-colors"
+                    onClick={() => setShowSnapshots(true)}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <Camera className="w-4 h-4 text-blue-400" />
+                      <span className="text-xs text-slate-400">Evidence</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{meetingStats.snapshotsWithEvidence}</div>
+                    <div className="text-[10px] text-slate-500">snapshots captured</div>
+                  </div>
+                  
+                  <div className="p-3 bg-slate-800/50 rounded-xl">
+                    <div className="flex items-center gap-2 mb-1">
+                      <BarChart3 className="w-4 h-4 text-purple-400" />
+                      <span className="text-xs text-slate-400">Trust Score</span>
+                    </div>
+                    <div className="text-lg font-bold text-white">{meetingStats.avgTrustScore}%</div>
+                    <div className="text-[10px] text-slate-500">avg (min: {meetingStats.minTrustScore}%)</div>
+                  </div>
+                </div>
+              )}
+              
+              {loadingStats && (
+                <div className="flex items-center justify-center py-4">
+                  <div className="w-6 h-6 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                </div>
+              )}
+              
+              <div className="border-t border-slate-700 my-4" />
+              
+              {/* Snapshot Gallery - Animated */}
+              {showSnapshots && meetingLogs.length > 0 && (
+                <div 
+                  className="space-y-3 animate-in fade-in slide-in-from-top-4 duration-500"
+                  onDoubleClick={() => setShowSnapshots(false)}
+                >
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                      <Camera className="w-4 h-4 text-primary" />
+                      Evidence Snapshots
+                      <span className="text-[10px] text-slate-500 font-normal">(double-click to close)</span>
+                    </h4>
+                    <button 
+                      onClick={() => setShowSnapshots(false)}
+                      className="text-xs text-slate-500 hover:text-white transition-colors"
+                    >
+                      Hide
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {meetingLogs.map((log, idx) => (
+                      <div 
+                        key={idx} 
+                        className="relative aspect-video rounded-lg overflow-hidden cursor-pointer group border border-slate-700 animate-in zoom-in duration-300"
+                        style={{ animationDelay: `${idx * 100}ms` }}
+                        onClick={() => setExpandedSnapshot(log.snapshotJpegDataUrl)}
+                      >
+                        <img 
+                          src={log.snapshotJpegDataUrl} 
+                          alt={`Evidence ${idx + 1}`}
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                          <span className="opacity-0 group-hover:opacity-100 text-white text-xs font-medium">
+                            Click to expand
+                          </span>
+                        </div>
+                        {log.isLikelyFake && (
+                          <div className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" title="Deepfake detected" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {showSnapshots && meetingLogs.length === 0 && (
+                <div className="p-4 bg-slate-800/50 rounded-xl text-center animate-in fade-in duration-300">
+                  <p className="text-slate-400 text-sm">No snapshots available for this meeting.</p>
+                  <p className="text-slate-500 text-xs mt-1">Deepfake Guard must be active during the meeting to capture evidence.</p>
+                </div>
+              )}
+              
+              <div className="border-t border-slate-700 my-4" />
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">
+                <Video className="w-5 h-5 text-primary" />
+                <div>
+                  <div className="text-xs text-slate-400">Meeting ID</div>
+                  <div className="text-white font-mono">{selectedMeeting.meetingId}</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">
+                <Calendar className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <div className="text-xs text-slate-400">Created</div>
+                  <div className="text-white">{formatDate(selectedMeeting.createdAt)}</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">
+                <Shield className="w-5 h-5 text-blue-400" />
+                <div>
+                  <div className="text-xs text-slate-400">Status</div>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${selectedMeeting.status === 'active' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
+                    <span className="text-white capitalize">{selectedMeeting.status}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {selectedMeeting.endedAt && (
+                <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">
+                  <Clock className="w-5 h-5 text-orange-400" />
+                  <div>
+                    <div className="text-xs text-slate-400">Ended</div>
+                    <div className="text-white">{formatDate(selectedMeeting.endedAt)}</div>
+                  </div>
+                </div>
+              )}
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">
+                <Users className="w-5 h-5 text-orange-400" />
+                <div>
+                  <div className="text-xs text-slate-400">Participants Tracked</div>
+                  <div className="text-white font-medium">
+                    {meetingStats?.uniqueParticipants.length || 0} unique participant{meetingStats && meetingStats.uniqueParticipants.length !== 1 ? 's' : ''}
+                  </div>
+                  {meetingStats && meetingStats.uniqueParticipants.length > 0 && (
+                    <div className="text-[10px] text-slate-500 mt-1">
+                      {meetingStats.uniqueParticipants.slice(0, 3).join(', ')}
+                      {meetingStats.uniqueParticipants.length > 3 && ` +${meetingStats.uniqueParticipants.length - 3} more`}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">
+                <FileText className="w-5 h-5 text-yellow-400" />
+                <div>
+                  <div className="text-xs text-slate-400">Title</div>
+                  <div className="text-white">{selectedMeeting.title || 'Untitled Meeting'}</div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 p-3 bg-slate-800/50 rounded-xl">
+                <Database className="w-5 h-5 text-pink-400" />
+                <div>
+                  <div className="text-xs text-slate-400">Internal ID</div>
+                  <div className="text-white font-mono text-xs truncate">{selectedMeeting._id}</div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => { setShowMeetingDetails(false); navigate(`/join/${selectedMeeting.meetingId}`); }}
+                className="flex-1 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white py-3 rounded-xl font-semibold transition-all"
+              >
+                <Play className="w-4 h-4" />
+                {selectedMeeting.status === 'active' ? 'Join Meeting' : 'View Meeting'}
+              </button>
+              <button
+                onClick={() => { copyMeetingLink(selectedMeeting.meetingId); setShowMeetingDetails(false); }}
+                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-3 rounded-xl font-semibold transition-all border border-slate-700"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expanded Snapshot Modal */}
+      {expandedSnapshot && (
+        <div 
+          className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setExpandedSnapshot(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh]">
+            <img 
+              src={expandedSnapshot} 
+              alt="Evidence snapshot expanded"
+              className="max-w-full max-h-[85vh] rounded-lg shadow-2xl"
+            />
+            <button
+              onClick={() => setExpandedSnapshot(null)}
+              className="absolute -top-10 right-0 text-white/70 hover:text-white text-sm flex items-center gap-1"
+            >
+              <span>Close</span>
+              <span className="text-lg">×</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
