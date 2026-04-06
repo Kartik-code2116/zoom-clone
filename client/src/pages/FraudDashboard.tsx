@@ -131,7 +131,7 @@ const FraudDashboard: React.FC = () => {
         </div>
 
         {/* Summary cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-6">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 mt-6">
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <div className="text-xs text-white/50">Total snapshots</div>
             <div className="text-2xl font-bold text-white mt-1">{logs.length}</div>
@@ -151,6 +151,15 @@ const FraudDashboard: React.FC = () => {
               <span className="text-2xl font-bold">{summary.minTrust !== null ? Math.round(summary.minTrust) : '--'}</span>
               <span className="text-white/30 mx-2">/</span>
               <span className="text-xl font-semibold text-white/80">{summary.avgTrust !== null ? Math.round(summary.avgTrust) : '--'}</span>
+            </div>
+          </div>
+          <div className={`rounded-2xl border border-white/10 bg-white/[0.03] p-4 ${summary.last?.mlConfidence ? (summary.last.mlConfidence > 0.7 ? 'text-emerald-400' : summary.last.mlConfidence > 0.4 ? 'text-yellow-400' : 'text-red-400') : 'text-slate-400'}`}>
+            <div className="text-xs text-white/50">Latest ML Confidence</div>
+            <div className="text-2xl font-bold mt-1">
+              {summary.last?.mlConfidence ? `${(summary.last.mlConfidence * 100).toFixed(0)}%` : '--'}
+            </div>
+            <div className="text-[10px] text-white/30">
+              {summary.last?.mlLabel ? summary.last.mlLabel.toUpperCase() : 'No ML data yet'}
             </div>
           </div>
         </div>
@@ -215,7 +224,10 @@ const FraudDashboard: React.FC = () => {
 
           {loading && (
             <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-white/60">
-              Loading…
+              <div className="flex items-center gap-3">
+                <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                <span>Initializing AI model...</span>
+              </div>
             </div>
           )}
           {error && (

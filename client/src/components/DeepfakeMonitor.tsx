@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import api from '../services/api';
 import { FaceMesh, Results } from '@mediapipe/face_mesh';
 import { useRemoteParticipants, useLocalParticipant } from '@livekit/components-react';
-import { Activity, Shield, Eye, Timer, Zap, Users, AlertTriangle } from 'lucide-react';
+import { Activity, Shield, Eye, Timer, Zap, Users, AlertTriangle, X, ChevronUp } from 'lucide-react';
 
 type GazeDirection = 'center' | 'left' | 'right' | 'up' | 'down' | 'unknown';
 
@@ -151,6 +151,7 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   // Resizable state
   const [panelWidth, setPanelWidth] = useState(256);
   const [panelHeight, setPanelHeight] = useState(420);
+  const [isVisible, setIsVisible] = useState(true);
   const [isResizingWidth, setIsResizingWidth] = useState(false);
   const [isResizingHeight, setIsResizingHeight] = useState(false);
   const MIN_WIDTH = 200;
@@ -538,32 +539,58 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   }[riskColor];
 
   return (
-    <div 
-      ref={panelRef}
-      className={`fixed z-40 rounded-lg bg-slate-900/80 text-white shadow-lg border border-slate-700 backdrop-blur-sm ${
-        isDragging ? 'shadow-primary/20' : ''
-      }`}
-      style={{
-        left: position.x,
-        top: position.y,
-        width: panelWidth,
-        height: panelHeight
-      }}
-    >
-      {/* Drag Handle Header */}
-      <div 
-        onMouseDown={handleDragStart}
-        className="px-4 py-3 border-b border-slate-700 flex items-center justify-between cursor-grab active:cursor-grabbing"
-      >
-        <div className="text-sm font-semibold">DeepFake Guard</div>
-        <span
-          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-            status.isLikelyFake ? 'bg-red-600/80 text-white' : 'bg-emerald-600/80 text-white'
-          }`}
+    <>
+      {/* Hidden Toggle Button */}
+      {!isVisible && (
+        <button
+          onClick={() => setIsVisible(true)}
+          className="fixed z-40 right-4 top-20 bg-slate-900/90 text-white p-2 rounded-lg shadow-lg border border-slate-700 hover:bg-slate-800 transition-colors"
+          title="Show DeepFake Guard"
         >
-          {status.isLikelyFake ? 'RISK' : 'STABLE'}
-        </span>
-      </div>
+          <ChevronUp className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* Main Panel - Only show when visible */}
+      {isVisible && (
+        <div 
+          ref={panelRef}
+          className={`fixed z-40 rounded-lg bg-slate-900/80 text-white shadow-lg border border-slate-700 backdrop-blur-sm ${
+            isDragging ? 'shadow-primary/20' : ''
+          }`}
+          style={{
+            left: position.x,
+            top: position.y,
+            width: panelWidth,
+            height: panelHeight
+          }}
+        >
+          {/* Drag Handle Header */}
+          <div 
+            onMouseDown={handleDragStart}
+            className="px-4 py-3 border-b border-slate-700 flex items-center justify-between cursor-grab active:cursor-grabbing"
+          >
+            <div className="text-sm font-semibold">DeepFake Guard</div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                  status.isLikelyFake ? 'bg-red-600/80 text-white' : 'bg-emerald-600/80 text-white'
+                }`}
+              >
+                {status.isLikelyFake ? 'RISK' : 'STABLE'}
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsVisible(false);
+                }}
+                className="p-1 hover:bg-slate-700 rounded transition-colors"
+                title="Hide panel"
+              >
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+          </div>
 
       {/* Resize Handle - Left Edge (Width) */}
       <div
@@ -758,7 +785,9 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
 
       {/* Hidden canvas used for analysis */}
       <canvas ref={canvasRef} className="hidden" />
-    </div>
+        </div>
+      )}
+    </>
   );
 };
 
