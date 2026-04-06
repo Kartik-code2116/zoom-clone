@@ -6,14 +6,14 @@ This document describes how the real-time deepfake detection system is integrate
 
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Video Call    │────▶│  Node.js Server │────▶│ Python ML     │
-│   (Frontend)    │◄────│   (Port 5000)   │◄────│ Service (5001) │
+│   Video Call    │────▶│  Node.js Server│────▶│ Python ML       │
+│   (Frontend)    │◄────│   (Port 5000)   │◄────│ Service (5001)  │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
         │                        │                        │
         ▼                        ▼                        ▼
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ DeepfakeMonitor │     │ /api/deepfake/* │     │ ML Pipeline   │
-│ Component       │     │ Routes          │     │ (TensorFlow)  │
+│ DeepfakeMonitor │     │ /api/deepfake/* │     │ ML Pipeline     │
+│ Component       │     │ Routes          │     │ (TensorFlow)    │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 

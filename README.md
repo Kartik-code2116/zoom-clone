@@ -89,13 +89,13 @@ A full-featured, production-ready video conferencing platform built with React, 
 
 The meeting interface features a flexible, customizable layout:
 
-| Component | Resizable (Width) | Resizable (Height) | Movable | Panel Sync |
-|-----------|-------------------|-------------------|---------|------------|
-| `ChatPanel` | ✅ Left edge (280-600px) | ✅ Bottom (when floating) | ✅ Drag handle | ✅ Video & toolbar shift |
-| `ParticipantPanel` | ✅ Left edge (280-600px) | ✅ Bottom (when floating) | ✅ Drag handle | ✅ Video & toolbar shift |
-| `DeepfakeMonitor` | ✅ Left edge (200-400px) | ✅ Bottom | ✅ Drag header | Floating overlay |
-| `FraudDashboardPanel` | ✅ Left edge (280-600px) | ❌ (full height) | ❌ (side docked) | ✅ Video & toolbar shift |
-| `MeetingToolbar` | ❌ | ❌ | ✅ Drag handle | Shifts with panels |
+| Component            | Resizable (Width)         | Resizable (Height)         | Movable           | Panel Sync               |
+|----------------------|---------------------------|----------------------------|-------------------|--------------------------|
+| `ChatPanel`          | ✅ Left edge (280-600px)  | ✅ Bottom (when floating) | ✅ Drag handle   | ✅ Video & toolbar shift |
+| `ParticipantPanel`   | ✅ Left edge (280-600px)  | ✅ Bottom (when floating) | ✅ Drag handle   | ✅ Video & toolbar shift |
+| `DeepfakeMonitor`    | ✅ Left edge (200-400px)  | ✅ Bottom                 | ✅ Drag header   | Floating overlay         |
+| `FraudDashboardPanel`| ✅ Left edge (280-600px)  | ❌ (full height)          | ❌ (side docked) | ✅ Video & toolbar shift |
+| `MeetingToolbar`     | ❌                        | ❌                        | ✅ Drag handle   | Shifts with panels       |
 
 ### How It Works
 
