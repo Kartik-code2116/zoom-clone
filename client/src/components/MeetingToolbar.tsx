@@ -1,8 +1,9 @@
 import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useLocalParticipant, useRoomContext } from '@livekit/components-react';
+import { LocalVideoTrack } from 'livekit-client';
 import { showSuccess } from '../utils/toast';
-import { Shield } from 'lucide-react';
+import { Shield, Camera, ChevronDown } from 'lucide-react';
 
 interface MeetingToolbarProps {
   onToggleChat: () => void;
@@ -37,6 +38,99 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
   const { meetingId } = useParams<{ meetingId: string }>();
   const room = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
+  
+  // Camera device state
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const [isDeviceMenuOpen, setIsDeviceMenuOpen] = useState(false);
+  const deviceMenuRef = useRef<HTMLDivElement>(null);
+
+  // Get available video devices
+  const getVideoDevices = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter(d => d.kind === 'videoinput');
+      setVideoDevices(videoInputs);
+      
+      // Try to find current device from active track
+      const videoTrack = localParticipant.videoTrackPublications.values().next().value?.track;
+      if (videoTrack) {
+        const mediaStreamTrack = (videoTrack as LocalVideoTrack).mediaStreamTrack;
+        if (mediaStreamTrack) {
+          const currentLabel = mediaStreamTrack.label;
+          const currentDevice = videoInputs.find(d => d.label === currentLabel);
+          if (currentDevice) {
+            setSelectedDeviceId(currentDevice.deviceId);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to enumerate devices:', err);
+    }
+  }, [localParticipant]);
+
+  // Enumerate devices on mount and when camera is enabled
+  useEffect(() => {
+    getVideoDevices();
+  }, [getVideoDevices, isCameraEnabled]);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (deviceMenuRef.current && !deviceMenuRef.current.contains(e.target as Node)) {
+        setIsDeviceMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Switch camera device using LiveKit native method
+  const switchCamera = useCallback(async (deviceId: string) => {
+    console.log('🎥 Switching camera to:', deviceId);
+    try {
+      setSelectedDeviceId(deviceId);
+      setIsDeviceMenuOpen(false);
+
+      // Find the video track publication
+      const videoPubs = Array.from(localParticipant.videoTrackPublications.values());
+      console.log('📹 Current video publications:', videoPubs.length);
+      const videoPub = videoPubs[0];
+
+      if (!videoPub?.track) {
+        console.log('📷 No existing track, enabling camera with device:', deviceId);
+        await localParticipant.setCameraEnabled(true, { deviceId });
+        console.log('✅ Camera enabled with device');
+        return;
+      }
+
+      // Use LiveKit's native switchDevice if available
+      const videoTrack = videoPub.track as any;
+      console.log('🔧 Video track methods:', Object.keys(videoTrack));
+      
+      if (videoTrack?.switchDevice) {
+        console.log('🔄 Using switchDevice method');
+        await videoTrack.switchDevice(deviceId);
+        console.log('✅ Camera switched via switchDevice');
+        showSuccess('Camera switched');
+      } else if (videoTrack?.restartTrack) {
+        console.log('🔄 Using restartTrack method');
+        await videoTrack.restartTrack({ deviceId });
+        console.log('✅ Camera switched via restartTrack');
+        showSuccess('Camera switched');
+      } else {
+        console.log('⚠️ No native method, falling back to disable/enable');
+        await localParticipant.setCameraEnabled(false);
+        await new Promise(r => setTimeout(r, 500));
+        await localParticipant.setCameraEnabled(true, { deviceId });
+        console.log('✅ Camera switched via fallback');
+        showSuccess('Camera switched');
+      }
+    } catch (err) {
+      console.error('❌ Failed to switch camera:', err);
+      showSuccess('Camera busy - stop face swap first');
+    }
+  }, [localParticipant]);
   
   // Draggable state
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -112,6 +206,41 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
   const toggleScreenShare = useCallback(async () => {
     const isScreenSharing = localParticipant.isScreenShareEnabled;
     await localParticipant.setScreenShareEnabled(!isScreenSharing);
+  }, [localParticipant]);
+
+  // Share face swap window specifically
+  const shareFaceSwap = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          displaySurface: 'window'
+        },
+        audio: false
+      });
+      
+      // Replace video track with screen share
+      const screenTrack = stream.getVideoTracks()[0];
+      if (screenTrack) {
+        // Stop existing camera first
+        await localParticipant.setCameraEnabled(false);
+        
+        // Publish screen track as video
+        const { LocalVideoTrack } = await import('livekit-client');
+        const lkTrack = new LocalVideoTrack(screenTrack);
+        await localParticipant.publishTrack(lkTrack);
+        
+        showSuccess('Face Swap window shared!');
+        
+        // Handle when user stops sharing
+        screenTrack.onended = () => {
+          localParticipant.unpublishTrack(lkTrack);
+          localParticipant.setCameraEnabled(true);
+        };
+      }
+    } catch (err) {
+      console.error('Failed to share face swap:', err);
+      showSuccess('Could not share window - use Screen Share button instead');
+    }
   }, [localParticipant]);
 
   const copyLink = useCallback(() => {
@@ -194,21 +323,69 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
           </span>
         </button>
 
-        {/* Camera Toggle */}
-        <button
-          onClick={toggleCamera}
-          className={`relative group flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl transition-all duration-200 ${
-            isCameraEnabled
-              ? 'bg-white/10 hover:bg-white/15 text-white'
-              : 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
-          }`}
-          title="Toggle Camera (V)"
-        >
-          <span className="text-lg">{isCameraEnabled ? '📹' : '📷'}</span>
-          <span className="text-[10px] font-medium opacity-70">
-            {isCameraEnabled ? 'Video' : 'No Video'}
-          </span>
-        </button>
+        {/* Camera Toggle with Device Selector */}
+        <div className="relative" ref={deviceMenuRef}>
+          <div className="flex items-center">
+            <button
+              onClick={toggleCamera}
+              className={`relative group flex flex-col items-center gap-1 px-4 py-2.5 rounded-l-xl transition-all duration-200 ${
+                isCameraEnabled
+                  ? 'bg-white/10 hover:bg-white/15 text-white'
+                  : 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
+              }`}
+              title="Toggle Camera (V)"
+            >
+              <span className="text-lg">{isCameraEnabled ? '📹' : '📷'}</span>
+              <span className="text-[10px] font-medium opacity-70">
+                {isCameraEnabled ? 'Video' : 'No Video'}
+              </span>
+            </button>
+            
+            {/* Camera dropdown button */}
+            {videoDevices.length > 1 && (
+              <button
+                onClick={() => setIsDeviceMenuOpen(!isDeviceMenuOpen)}
+                className={`px-2 py-2.5 rounded-r-xl border-l border-white/10 transition-all duration-200 ${
+                  isCameraEnabled
+                    ? 'bg-white/10 hover:bg-white/15 text-white'
+                    : 'bg-red-500/20 hover:bg-red-500/30 text-red-400'
+                }`}
+                title="Switch Camera"
+              >
+                <ChevronDown className={`w-4 h-4 transition-transform ${isDeviceMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+            )}
+          </div>
+
+          {/* Camera device dropdown */}
+          {isDeviceMenuOpen && videoDevices.length > 1 && (
+            <div className="absolute bottom-full left-0 mb-2 bg-darker border border-white/10 rounded-lg overflow-hidden shadow-xl min-w-[200px] z-50">
+              <div className="px-3 py-2 text-xs text-white/50 border-b border-white/10 bg-white/5">
+                Select Camera
+              </div>
+              {videoDevices.map((device) => (
+                <button
+                  key={device.deviceId}
+                  onClick={() => {
+                    switchCamera(device.deviceId);
+                    setIsDeviceMenuOpen(false);
+                  }}
+                  className={`w-full px-3 py-2.5 text-left text-sm hover:bg-white/5 transition-colors flex items-center gap-2 ${
+                    selectedDeviceId === device.deviceId ? 'bg-primary/20 text-primary' : 'text-white/80'
+                  }`}
+                >
+                  <Camera className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">
+                    {device.label || `Camera ${videoDevices.indexOf(device) + 1}`}
+                  </span>
+                  {device.label.toLowerCase().includes('obs') && (
+                    <span className="ml-auto text-xs text-primary flex-shrink-0">Face Swap</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Screen Share */}
         <button
@@ -218,6 +395,16 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
         >
           <span className="text-lg">🖥️</span>
           <span className="text-[10px] font-medium opacity-70">Share</span>
+        </button>
+
+        {/* Face Swap Share - Workaround for virtual camera issues */}
+        <button
+          onClick={shareFaceSwap}
+          className="relative group flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary border border-primary/30 transition-all duration-200"
+          title="Share Face Swap Window (Better than OBS Virtual Camera)"
+        >
+          <span className="text-lg">🎭</span>
+          <span className="text-[10px] font-medium opacity-90">Face Swap</span>
         </button>
 
         <div className="w-px h-10 bg-white/10 mx-1" />
