@@ -20,7 +20,8 @@ interface LocationState {
   userName?: string;
 }
 
-const LIVEKIT_URL = 'wss://zoom-clone-2jil3ca0.livekit.cloud';
+// FIX #1: Read LiveKit URL from .env instead of hardcoding
+const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL || 'wss://zoom-clone-2jil3ca0.livekit.cloud';
 
 // Connection state monitor component
 const ConnectionMonitor: React.FC<{ onError: () => void }> = ({ onError }) => {
@@ -58,9 +59,9 @@ const Meeting: React.FC = () => {
   const [reactionsOpen, setReactionsOpen] = useState(false);
   const [activeReaction, setActiveReaction] = useState<string | null>(null);
   const [fraudDashboardOpen, setFraudDashboardOpen] = useState(false);
-  const [fraudDashboardWidth, setFraudDashboardWidth] = useState(384); // Default width
-  const [chatPanelWidth, setChatPanelWidth] = useState(320); // Default width
-  const [participantPanelWidth, setParticipantPanelWidth] = useState(320); // Default width
+  const [fraudDashboardWidth, setFraudDashboardWidth] = useState(384);
+  const [chatPanelWidth, setChatPanelWidth] = useState(320);
+  const [participantPanelWidth, setParticipantPanelWidth] = useState(320);
 
   const [connectionError, setConnectionError] = useState<string | null>(null);
 
@@ -94,7 +95,6 @@ const Meeting: React.FC = () => {
   }, []);
 
   const handleDisconnected = useCallback(() => {
-    // Only navigate to summary if we were actually connected (not a connection error)
     if (!connectionError) {
       navigate(`/meeting/${meetingId}/summary`);
     }
@@ -105,7 +105,7 @@ const Meeting: React.FC = () => {
     showError('Failed to connect to video server. LiveKit may not be running.');
   }, []);
 
-  // Redirect to join page if no token (after all hooks)
+  // Redirect to join page if no token
   if (!state?.token || !meetingId) {
     return <Navigate to={`/join/${meetingId || ''}`} replace />;
   }
@@ -151,10 +151,8 @@ const Meeting: React.FC = () => {
         style={{ height: '100%' }}
       >
         <ConnectionMonitor onError={handleConnectionError} />
-        {/* Top meeting header with title, id and connection status */}
         <MeetingHeader meetingId={meetingId} title={state?.userName ? `${state.userName}'s meeting` : undefined} />
 
-        {/* Video Conference Area */}
         <div 
           className="h-full pb-24 pt-10 relative transition-all duration-300"
           style={{ 
@@ -164,15 +162,10 @@ const Meeting: React.FC = () => {
           }}
         >
           <VideoConference />
-
-          {/* Floating reaction animation */}
           {activeReaction && <FloatingReaction emoji={activeReaction} />}
-
-          {/* Quick reaction tray */}
           <ReactionTray open={reactionsOpen} onSelect={handleSelectReaction} />
         </div>
 
-        {/* DeepFake monitoring overlay (local analysis, optional logging) */}
         {deepfakeGuardEnabled && (
           <DeepfakeMonitor
             meetingId={meetingId}
@@ -180,10 +173,8 @@ const Meeting: React.FC = () => {
           />
         )}
 
-        {/* Meeting Timer */}
         <MeetingTimer />
 
-        {/* Custom Toolbar */}
         <MeetingToolbar
           onToggleChat={handleToggleChat}
           onToggleParticipants={handleToggleParticipants}
@@ -199,7 +190,6 @@ const Meeting: React.FC = () => {
           onToggleFraudDashboard={() => setFraudDashboardOpen(prev => !prev)}
         />
 
-        {/* Side Panels */}
         <ChatPanel
           meetingId={meetingId}
           userName={participantName}
@@ -216,7 +206,6 @@ const Meeting: React.FC = () => {
           onWidthChange={setParticipantPanelWidth}
         />
 
-        {/* Settings modal */}
         <MeetingSettingsModal
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
@@ -228,7 +217,6 @@ const Meeting: React.FC = () => {
           }}
         />
 
-        {/* Fraud Dashboard Side Panel */}
         <FraudDashboardPanel
           meetingId={meetingId}
           isOpen={fraudDashboardOpen}
@@ -239,7 +227,6 @@ const Meeting: React.FC = () => {
         />
       </LiveKitRoom>
 
-      {/* Overlay when panel is open (mobile) */}
       {(chatOpen || participantsOpen || fraudDashboardOpen) && (
         <div
           className="fixed inset-0 bg-black/40 z-40 sm:hidden"

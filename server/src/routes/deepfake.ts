@@ -3,38 +3,29 @@ import { DeepfakeLog } from '../models/DeepfakeLog';
 import { auth, AuthRequest } from '../middleware/auth';
 import axios from 'axios';
 
-// Python ML Service configuration
 const PYTHON_ML_SERVICE_URL = process.env.PYTHON_ML_SERVICE_URL || 'http://localhost:5001';
 
 const router = Router();
 
-// POST /api/deepfake/analyze - call Python ML model for real-time frame analysis (temporarily public for testing)
-router.post('/analyze', async (req: any, res: Response): Promise<void> => {
+// POST /api/deepfake/analyze
+// FIX: re-enabled auth middleware (was "temporarily public")
+router.post('/analyze', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { imageBase64, sessionId, meetingId, participantId } = req.body;
-    
-    console.log('[Deepfake] Analyze request received:', { meetingId, participantId, hasImage: !!imageBase64 });
-    
+
     if (!imageBase64) {
       res.status(400).json({ error: 'imageBase64 is required' });
       return;
     }
 
-    // Generate session ID if not provided
-    const session_id = sessionId || `${meetingId}_${participantId || 'unknown'}`;
-    console.log('[Deepfake] Calling ML service at:', PYTHON_ML_SERVICE_URL);
+    const session_id = sessionId || `${meetingId}_${participantId || req.user?.id || 'unknown'}`;
 
-    // Call Python ML Service
     const response = await axios.post(`${PYTHON_ML_SERVICE_URL}/analyze-frame`, {
-      session_id: session_id,
+      session_id,
       image_base64: imageBase64,
       meeting_id: meetingId,
-      participant_id: participantId || 'unknown'
-    }, {
-      timeout: 10000 // 10 second timeout
-    });
-
-    console.log('[Deepfake] ML service response:', response.data);
+      participant_id: participantId || 'unknown',
+    }, { timeout: 10000 });
 
     const mlResult = response.data;
 
@@ -43,35 +34,46 @@ router.post('/analyze', async (req: any, res: Response): Promise<void> => {
       return;
     }
 
-    // Transform response to match existing frontend expectations
-    // while adding custom ML model results
+    // FIX: ml_service returns prediction nested; flatten correctly for client.
+    // ml_service shape: { success, face_detected, prediction: { label, confidence, probabilities, features, frame_count }, trust_score, is_likely_fake, frame_metrics }
+    const prediction = mlResult.prediction;
+
     const result = {
-      label: mlResult.prediction?.label || 'unknown',
-      score: mlResult.prediction?.confidence || 0,
-      trustScore: mlResult.trust_score || 50,
-      isLikelyFake: mlResult.is_likely_fake || false,
-      faceDetected: mlResult.face_detected,
-      frameMetrics: mlResult.frame_metrics,
-      probabilities: mlResult.prediction?.probabilities,
-      // Keep backward compatibility with existing HF format
-      allResults: mlResult.prediction ? [{
-        label: mlResult.prediction.label,
-        score: mlResult.prediction.confidence
-      }] : [],
-      // Custom ML model info
+      // Top-level fields the client reads directly
+      label: prediction?.label || 'unknown',
+      score: prediction?.confidence || 0,
+      trustScore: mlResult.trust_score ?? 50,
+      isLikelyFake: mlResult.is_likely_fake ?? false,
+      faceDetected: mlResult.face_detected ?? false,
+      frameMetrics: mlResult.frame_metrics || null,
+      probabilities: prediction?.probabilities || { real: 0.5, fake: 0.5 },
+      // Nested prediction object so client can also read data.prediction.*
+      prediction: prediction
+        ? {
+            label: prediction.label,
+            confidence: prediction.confidence,
+            probabilities: prediction.probabilities,
+            features: prediction.features,
+            frame_count: prediction.frame_count ?? 0,
+          }
+        : null,
+      // mlModel block for frame count + features
       mlModel: {
         type: 'custom_zppm',
-        features: mlResult.prediction?.features,
-        frameCount: mlResult.frame_count
-      }
+        features: prediction?.features || null,
+        frameCount: prediction?.frame_count ?? 0,
+      },
+      allResults: prediction
+        ? [{ label: prediction.label, score: prediction.confidence }]
+        : [],
     };
-    
+
     res.json(result);
   } catch (error: any) {
     console.error('Python ML Service error:', error.message);
     if (error.code === 'ECONNREFUSED') {
-      res.status(503).json({ 
-        error: 'ML Service unavailable. Please ensure the Python ML service is running on port 5001.' 
+      res.status(503).json({
+        error: 'ML Service unavailable. Please ensure the Python ML service is running on port 5001.',
       });
     } else {
       res.status(500).json({ error: 'AI model inference failed: ' + error.message });
@@ -79,8 +81,8 @@ router.post('/analyze', async (req: any, res: Response): Promise<void> => {
   }
 });
 
-// POST /api/deepfake/log - store a single trust score snapshot (temporarily public for testing)
-router.post('/log', async (req: any, res: Response): Promise<void> => {
+// POST /api/deepfake/log — auth re-enabled
+router.post('/log', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const {
       meetingId,
@@ -94,7 +96,6 @@ router.post('/log', async (req: any, res: Response): Promise<void> => {
       snapshotJpegDataUrl,
       hfLabel,
       hfScore,
-      // New fields for custom ML model
       mlLabel,
       mlConfidence,
       mlProbabilities,
@@ -120,7 +121,6 @@ router.post('/log', async (req: any, res: Response): Promise<void> => {
       snapshotJpegDataUrl,
       hfLabel,
       hfScore,
-      // Store custom ML model results
       mlLabel,
       mlConfidence,
       mlProbabilities,
@@ -135,12 +135,11 @@ router.post('/log', async (req: any, res: Response): Promise<void> => {
   }
 });
 
-// GET /api/deepfake/logs/:meetingId - list logs for a meeting (host only in future)
+// GET /api/deepfake/logs/:meetingId
 router.get('/logs/:meetingId', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { meetingId } = req.params;
     const logs = await DeepfakeLog.find({ meetingId }).sort({ createdAt: 1 }).limit(2000);
-
     res.json({ logs });
   } catch (error) {
     console.error('Deepfake logs fetch error:', error);
@@ -148,17 +147,13 @@ router.get('/logs/:meetingId', auth, async (req: AuthRequest, res: Response): Pr
   }
 });
 
-// POST /api/deepfake/reset-session - reset an analysis session
+// POST /api/deepfake/reset-session
 router.post('/reset-session', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { sessionId, meetingId, participantId } = req.body;
-    
     const session_id = sessionId || `${meetingId}_${participantId || req.user?.id || 'unknown'}`;
 
-    await axios.post(`${PYTHON_ML_SERVICE_URL}/reset-session`, {
-      session_id: session_id
-    });
-
+    await axios.post(`${PYTHON_ML_SERVICE_URL}/reset-session`, { session_id });
     res.json({ success: true, message: 'Session reset successfully' });
   } catch (error: any) {
     console.error('Reset session error:', error.message);
@@ -166,23 +161,17 @@ router.post('/reset-session', auth, async (req: AuthRequest, res: Response): Pro
   }
 });
 
-// GET /api/deepfake/health - check ML service health
+// GET /api/deepfake/health
 router.get('/health', auth, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const response = await axios.get(`${PYTHON_ML_SERVICE_URL}/health`, {
-      timeout: 5000
-    });
-    res.json({
-      nodeService: 'healthy',
-      pythonMlService: response.data
-    });
+    const response = await axios.get(`${PYTHON_ML_SERVICE_URL}/health`, { timeout: 5000 });
+    res.json({ nodeService: 'healthy', pythonMlService: response.data });
   } catch (error: any) {
     res.status(503).json({
       nodeService: 'healthy',
-      pythonMlService: { status: 'unavailable', error: error.message }
+      pythonMlService: { status: 'unavailable', error: error.message },
     });
   }
 });
 
 export default router;
-

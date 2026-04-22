@@ -20,5 +20,34 @@ services:
       - mongo-data:/data/db
     restart: unless-stopped
 
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGODB_URI=mongodb://mongodb:27017/zoom-clone
+      - JWT_SECRET=${JWT_SECRET}
+      - CLIENT_URL=${CLIENT_URL:-http://localhost:5173}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+      - PYTHON_ML_SERVICE_URL=http://ml-service:5001
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+
+  ml-service:
+    build:
+      context: ./ML_model
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - ALLOWED_ORIGINS=http://server:5000,http://localhost:5000
+    restart: unless-stopped
+
 volumes:
   mongo-data:

@@ -6,6 +6,14 @@ import { auth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret === 'your_jwt_secret_key_here_change_this_in_production') {
+    throw new Error('JWT_SECRET is not set or is using the default placeholder. Set a strong secret in .env');
+  }
+  return secret;
+}
+
 // POST /register
 router.post('/register', async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -13,6 +21,22 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
 
     if (!name || !email || !password) {
       res.status(400).json({ error: 'Name, email, and password are required' });
+      return;
+    }
+
+    if (name.trim().length < 2) {
+      res.status(400).json({ error: 'Name must be at least 2 characters' });
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      res.status(400).json({ error: 'Invalid email address' });
+      return;
+    }
+
+    if (password.length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
       return;
     }
 
@@ -25,14 +49,14 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await User.create({
-      name,
+      name: name.trim(),
       email: email.toLowerCase(),
       passwordHash,
     });
 
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      process.env.JWT_SECRET as string,
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 
@@ -40,7 +64,7 @@ router.post('/register', async (req: AuthRequest, res: Response): Promise<void> 
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     res.status(201).json({
@@ -81,7 +105,7 @@ router.post('/login', async (req: AuthRequest, res: Response): Promise<void> => 
 
     const token = jwt.sign(
       { id: user._id, email: user.email },
-      process.env.JWT_SECRET as string,
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 
@@ -89,7 +113,7 @@ router.post('/login', async (req: AuthRequest, res: Response): Promise<void> => 
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     res.json({
@@ -144,8 +168,8 @@ router.put('/profile', auth, async (req: AuthRequest, res: Response): Promise<vo
   try {
     const { name } = req.body;
 
-    if (!name || name.trim().length === 0) {
-      res.status(400).json({ error: 'Name is required' });
+    if (!name || name.trim().length < 2) {
+      res.status(400).json({ error: 'Name must be at least 2 characters' });
       return;
     }
 

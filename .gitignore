@@ -3,3 +3,24 @@ dist/
 .env
 *.log
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+ML_model/venv/
+ML_model/__pycache__/
+*.egg-info/
+
+# Build artifacts
+client/dist/
+server/dist/
+
+# Secrets — never commit these
+*.pem
+*.key
+*.cert
+server/.env
+client/.env

@@ -1,9 +1,7 @@
 # Complete Project Setup Guide
 
-## Project Overview
-Zoom Clone with Deepfake Detection - A video conferencing platform with ML-powered deepfake detection.
-
 ## Architecture
+
 ```
 ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
 │   React Client  │────▶│  Node.js API    │────▶│   MongoDB       │
@@ -13,249 +11,207 @@ Zoom Clone with Deepfake Detection - A video conferencing platform with ML-power
          │                       ▼
          │              ┌─────────────────┐
          │              │  Python ML      │
+         │              │  Service        │
          │              │  (Port 5001)    │
          │              └─────────────────┘
          ▼
 ┌─────────────────┐
-│  LiveKit Server │
-│  (Port 7880)    │
+│  LiveKit Cloud  │
+│  (wss://...)    │
 └─────────────────┘
 ```
 
 ## Prerequisites
-1. **Node.js** (v18+) - https://nodejs.org
-2. **MongoDB** - https://mongodb.com (or use MongoDB Atlas cloud)
-3. **Python 3.10+** - https://python.org (for ML service)
+
+- **Node.js** v18+
+- **MongoDB** (local or Atlas)
+- **Python 3.10+** (for ML service)
+
+---
+
+## Environment Setup (do this once)
+
+### Server — `server/.env`
+```env
+PORT=5000
+MONGODB_URI=mongodb://localhost:27017/zoom-clone
+JWT_SECRET=change_this_to_a_long_random_string_in_production
+CLIENT_URL=http://localhost:5173
+MOBILE_URL=http://localhost:5174
+
+# Your actual LiveKit Cloud credentials
+LIVEKIT_API_KEY=APIFeCwrTYTucz6
+LIVEKIT_API_SECRET=hBBCNtgSG4lk8pbXAvNRGLrkQRi2Kz8sDS0iYcN7bbH
+LIVEKIT_URL=wss://zoom-clone-2jil3ca0.livekit.cloud
+
+PYTHON_ML_SERVICE_URL=http://localhost:5001
+```
+
+> **Security:** Never commit `.env` files — they are in `.gitignore`.
+
+### Client — `client/.env`
+```env
+VITE_LIVEKIT_URL=wss://zoom-clone-2jil3ca0.livekit.cloud
+```
 
 ---
 
 ## Step 1: Start MongoDB
 
-### Option A: Local MongoDB
 ```bash
-# Windows (if MongoDB is installed as service)
+# Windows service
 net start MongoDB
 
-# Or start manually
-"C:\Program Files\MongoDB\Server\7.0\bin\mongod.exe" --dbpath "C:\data\db"
-```
-
-### Option B: MongoDB Atlas (Cloud)
-1. Create account at https://cloud.mongodb.com
-2. Create a cluster
-3. Get connection string: `mongodb+srv://username:password@cluster.mongodb.net/zoom-clone`
-4. Update `server/.env` with this URI
-
-### Verify MongoDB
-```bash
-# Should show port 27017 listening
-Get-NetTCPConnection -LocalPort 27017
+# Or Docker (simplest)
+docker compose up mongodb -d
 ```
 
 ---
 
-## Step 2: Start LiveKit Server
-
-### Automatic Setup (Windows)
-Run the LiveKit server we already downloaded:
-```powershell
-cd $env:TEMP\livekit
-$env:LIVEKIT_KEYS="devkey: secret"
-.\livekit-server.exe --dev
-```
-
-### Or Download Fresh
-```powershell
-mkdir $env:TEMP\livekit
-cd $env:TEMP\livekit
-Invoke-WebRequest -Uri "https://github.com/livekit/livekit/releases/latest/download/livekit-server_windows_amd64.zip" -OutFile "livekit.zip"
-Expand-Archive livekit.zip -DestinationPath .
-$env:LIVEKIT_KEYS="devkey: secret"
-.\livekit-server.exe --dev
-```
-
-### Verify LiveKit
-```bash
-# Should show port 7880 listening
-Get-NetTCPConnection -LocalPort 7880
-```
-
----
-
-## Step 3: Start Node.js Backend
+## Step 2: Start Node.js Backend
 
 ```bash
 cd server
-
-# Install dependencies (first time only)
-npm install
-
-# Copy environment variables (first time only)
-copy .env.example .env
-
-# Start server
+npm install          # first time only — installs express-rate-limit and others
 npm run dev
 ```
 
-**Backend will run at:** http://localhost:5000
+Runs at http://localhost:5000
+
+---
+
+## Step 3: Start Python ML Service
+
+```bash
+cd ML_model
+
+# Activate venv
+venv\Scripts\activate          # Windows
+# or: source venv/bin/activate  # Mac/Linux
+
+# Install deps (first time)
+pip install -r requirements.txt
+
+# Start
+python ml_service.py
+```
+
+Runs at http://localhost:5001
+
+> The ML service runs in **fallback mode** if the XGBoost model file
+> (`deepfake_xgb_model.joblib`) is not present — it still works using
+> image quality heuristics.
 
 ---
 
 ## Step 4: Start React Frontend
 
-Open a new terminal:
 ```bash
 cd client
-
-# Install dependencies (first time only)
-npm install
-
-# Copy environment variables (first time only)
-copy .env.example .env
-
-# Start development server
+npm install     # first time only
 npm run dev
 ```
 
-**Frontend will run at:** https://localhost:5173
+Runs at http://localhost:5173
 
 ---
 
-## Step 5: Start ML Service (Optional - for Deepfake Detection)
+## Step 5 (optional): Run all via Docker
 
-Open a new terminal:
 ```bash
-cd ML_model
-
-# Windows
-start-ml-service.bat
-
-# Or Linux/Mac
-./start-ml-service.sh
+# From project root — starts MongoDB, LiveKit, Node server, ML service
+docker compose up --build
 ```
 
-**ML Service will run at:** http://localhost:5001
+> The client is not containerised — run it separately with `npm run dev`.
 
 ---
 
-## Environment Variables
+## Verify all services
 
-### Server (.env)
-```env
-PORT=5000
-MONGODB_URI=mongodb://localhost:27017/zoom-clone
-JWT_SECRET=your_jwt_secret_key_here
-CLIENT_URL=http://localhost:5173
-LIVEKIT_API_KEY=devkey
-LIVEKIT_API_SECRET=secret
-LIVEKIT_URL=ws://localhost:7880
-PYTHON_ML_SERVICE_URL=http://localhost:5001
-```
-
-### Client (.env)
-```env
-VITE_LIVEKIT_URL=ws://localhost:7880
-```
-
----
-
-## Verify All Services
-
-Run in PowerShell:
 ```powershell
-Get-NetTCPConnection -LocalPort 5000,5173,7880,27017,5001 | 
-    Select-Object LocalPort, State | Sort-Object LocalPort
+# Windows PowerShell
+Get-NetTCPConnection -LocalPort 5000,5001,5173,27017 |
+  Select-Object LocalPort, State | Sort-Object LocalPort
 ```
 
-Expected output:
+Expected:
 ```
 LocalPort  State
 ---------  -----
-     5000 Listen    # Backend
-     5001 Listen    # ML Service (optional)
-     5173 Listen    # Frontend
-     7880 Listen    # LiveKit
-    27017 Listen    # MongoDB
+     5000  Listen   # Node server
+     5001  Listen   # ML service
+     5173  Listen   # React client
+    27017  Listen   # MongoDB
 ```
 
 ---
 
-## Access the Application
+## Quick start script (Windows)
 
-1. Open browser: **https://localhost:5173**
-2. Accept the self-signed certificate warning
-3. Register a new account or login
-4. Create or join a meeting
-
----
-
-## Troubleshooting
-
-### "Connection Refused" on Login
-- Backend server is not running. Start it with `npm run dev` in server folder.
-
-### "No navigator.mediaDevices.getUserMedia exists"
-- Using HTTP instead of HTTPS. The Vite dev server uses HTTPS by default.
-- Accept the certificate warning in browser.
-
-### "WebSocket connection failed" / "401 Authentication"
-- LiveKit server not running or wrong credentials.
-- Check LIVEKIT_API_KEY and LIVEKIT_API_SECRET match in server and LiveKit.
-
-### Camera not working
-- Check browser permissions
-- Ensure you're on HTTPS (not HTTP)
-- Try refreshing the page
-
-### ML Service not responding
-- Check Python 3.10+ is installed
-- Check port 5001 is available
-- Review ML_INTEGRATION.md for details
-
----
-
-## Quick Start Script (Windows)
-
-Create `start-all.bat`:
 ```batch
 @echo off
-echo Starting all services...
+echo Starting Zoom Clone...
 
-:: Start MongoDB (if not running as service)
-:: net start MongoDB
+:: MongoDB
+net start MongoDB
 
-:: Start LiveKit in new window
-start "LiveKit Server" cmd /k "cd %TEMP%\livekit && set LIVEKIT_KEYS=devkey: secret && livekit-server.exe --dev"
-
-:: Start Backend
+:: Backend
 cd server
-start "Backend Server" cmd /k "npm run dev"
+start "Backend" cmd /k "npm run dev"
 cd ..
 
-:: Start Frontend
+:: ML Service
+cd ML_model
+start "ML Service" cmd /k "venv\Scripts\activate && python ml_service.py"
+cd ..
+
+:: Frontend
 cd client
-start "Frontend Server" cmd /k "npm run dev"
+start "Frontend" cmd /k "npm run dev"
 cd ..
 
-echo All services starting...
-echo Access the app at: https://localhost:5173
+echo Open http://localhost:5173
 pause
 ```
 
 ---
 
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Login fails with 500 | `JWT_SECRET` not set in `server/.env` |
+| ML model shows "Initializing..." forever | ML service not running on port 5001 |
+| DeepFake Guard shows results but ML panel empty | Check `PYTHON_ML_SERVICE_URL` in `server/.env` |
+| Camera not working | Must be on HTTPS or localhost; check browser permissions |
+| "Too many requests" on login | Rate limiter — wait 15 min or restart server in dev |
+| LiveKit connection fails | Check `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` in `.env` |
+
+---
+
 ## Project Structure
+
 ```
 zoom-clone/
-├── client/          # React frontend
-├── server/          # Node.js backend
-├── ML_model/        # Python deepfake detection
-├── README.md        # Main documentation
-├── ML_INTEGRATION.md # ML service details
-└── RUN_GUIDE.md     # This file
+├── client/           # React + Vite + Tailwind frontend
+│   ├── src/
+│   │   ├── components/   # DeepfakeMonitor, ErrorBoundary, etc.
+│   │   ├── pages/        # Meeting, FraudDashboard, etc.
+│   │   └── services/     # API client
+│   └── .env
+├── server/           # Express + TypeScript + Socket.IO backend
+│   ├── src/
+│   │   ├── routes/       # auth, meetings, deepfake
+│   │   ├── models/       # User, Meeting, DeepfakeLog, ChatMessage
+│   │   ├── middleware/   # auth JWT
+│   │   ├── utils/        # livekit token generator
+│   │   └── socket.ts     # real-time chat + room events
+│   ├── Dockerfile
+│   └── .env
+├── ML_model/         # Python Flask deepfake detection service
+│   ├── ml_service.py
+│   ├── requirements.txt
+│   └── Dockerfile
+└── docker-compose.yml
 ```
-
-## Need Help?
-- Check `README.md` for architecture details
-- Check `ML_INTEGRATION.md` for ML service details
-- Review server logs in terminal for errors
