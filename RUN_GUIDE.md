@@ -1,136 +1,155 @@
-# Complete Project Setup Guide
+# SecureMeet — Setup & Run Guide
 
-## Architecture
+## Architecture at a Glance
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   React Client  │────▶│  Node.js API    │────▶│   MongoDB       │
-│   (Port 5173)   │     │   (Port 5000)   │     │   (Port 27017)  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-         │                       │
-         │                       ▼
-         │              ┌─────────────────┐
-         │              │  Python ML      │
-         │              │  Service        │
-         │              │  (Port 5001)    │
-         │              └─────────────────┘
-         ▼
-┌─────────────────┐
-│  LiveKit Cloud  │
-│  (wss://...)    │
-└─────────────────┘
+React Client (5173)  ──▶  Node.js API (5000)  ──▶  MongoDB (27017)
+                                │
+                                ▼
+                     Python ML Service (5001)
+
+React Client  ──────────────────────────────▶  LiveKit Cloud (wss://...)
 ```
-
-## Prerequisites
-
-- **Node.js** v18+
-- **MongoDB** (local or Atlas)
-- **Python 3.10+** (for ML service)
 
 ---
 
-## Environment Setup (do this once)
+## Prerequisites
 
-### Server — `server/.env`
+| Tool | Version | Purpose |
+|------|---------|---------|
+| Node.js | v18+ | Backend + Frontend |
+| Python | 3.10+ | ML service |
+| MongoDB | 7+ | Database (or Docker) |
+| LiveKit account | Free tier | WebRTC SFU media server |
+
+Get a free LiveKit account at [livekit.io](https://livekit.io).
+
+---
+
+## Step 0 — Create Environment Files
+
+### `server/.env`
 ```env
 PORT=5000
 MONGODB_URI=mongodb://localhost:27017/zoom-clone
-JWT_SECRET=change_this_to_a_long_random_string_in_production
+JWT_SECRET=replace_with_a_long_random_string_min_32_chars
 CLIENT_URL=http://localhost:5173
 MOBILE_URL=http://localhost:5174
 
-# Your actual LiveKit Cloud credentials
-LIVEKIT_API_KEY=APIFeCwrTYTucz6
-LIVEKIT_API_SECRET=hBBCNtgSG4lk8pbXAvNRGLrkQRi2Kz8sDS0iYcN7bbH
-LIVEKIT_URL=wss://zoom-clone-2jil3ca0.livekit.cloud
+LIVEKIT_API_KEY=your_livekit_api_key
+LIVEKIT_API_SECRET=your_livekit_api_secret
+LIVEKIT_URL=wss://your-project.livekit.cloud
 
 PYTHON_ML_SERVICE_URL=http://localhost:5001
 ```
 
-> **Security:** Never commit `.env` files — they are in `.gitignore`.
-
-### Client — `client/.env`
+### `client/.env`
 ```env
-VITE_LIVEKIT_URL=wss://zoom-clone-2jil3ca0.livekit.cloud
+VITE_LIVEKIT_URL=wss://your-project.livekit.cloud
 ```
+
+> **Never commit these files.** Both are already in `.gitignore`.
 
 ---
 
-## Step 1: Start MongoDB
+## Step 1 — Start MongoDB
 
 ```bash
-# Windows service
+# Option A: Windows service
 net start MongoDB
 
-# Or Docker (simplest)
+# Option B: Docker (recommended — no install needed)
 docker compose up mongodb -d
 ```
 
 ---
 
-## Step 2: Start Node.js Backend
+## Step 2 — Start Node.js Backend
 
 ```bash
 cd server
-npm install          # first time only — installs express-rate-limit and others
+npm install
 npm run dev
 ```
 
-Runs at http://localhost:5000
+Expected output:
+```
+Connected to MongoDB
+Server running on port 5000
+```
 
 ---
 
-## Step 3: Start Python ML Service
+## Step 3 — Start Python ML Service
 
 ```bash
 cd ML_model
 
-# Activate venv
-venv\Scripts\activate          # Windows
-# or: source venv/bin/activate  # Mac/Linux
+# First time only — create virtual environment
+python -m venv venv
 
-# Install deps (first time)
+# Activate virtual environment
+# Windows:
+venv\Scripts\activate
+# Mac/Linux:
+source venv/bin/activate
+
+# First time only — install dependencies
 pip install -r requirements.txt
 
-# Start
+# Start the service
 python ml_service.py
 ```
 
-Runs at http://localhost:5001
+Expected output:
+```
+Deepfake Detection ML Service v1.1
+ML Model Path: ...
+Pipeline: Full (or Fallback) mode
+Starting server on http://0.0.0.0:5001
+```
 
-> The ML service runs in **fallback mode** if the XGBoost model file
-> (`deepfake_xgb_model.joblib`) is not present — it still works using
-> image quality heuristics.
+> **Fallback mode** activates if `deepfake_xgb_model.joblib` is not found.
+> The service still works — it uses image quality heuristics instead of the CNN model.
+> Trust scores and detections continue to function normally.
 
 ---
 
-## Step 4: Start React Frontend
+## Step 4 — Start React Frontend
 
 ```bash
 cd client
-npm install     # first time only
+npm install
 npm run dev
 ```
 
-Runs at http://localhost:5173
-
----
-
-## Step 5 (optional): Run all via Docker
-
-```bash
-# From project root — starts MongoDB, LiveKit, Node server, ML service
-docker compose up --build
+Expected output:
+```
+VITE ready
+➜  Local:   https://localhost:5173/
 ```
 
-> The client is not containerised — run it separately with `npm run dev`.
+> The browser shows a **certificate warning** on first launch. This is expected for local HTTPS.
+> Click **Advanced → Proceed to localhost** to continue. Camera requires HTTPS or localhost.
 
 ---
 
-## Verify all services
+## Step 5 (Optional) — Run Everything via Docker
+
+```bash
+# Builds and starts: MongoDB + LiveKit + Node server + Python ML service
+docker compose up --build
+
+# Start the frontend separately (not containerised)
+cd client && npm run dev
+```
+
+---
+
+## Verify All Services
 
 ```powershell
-# Windows PowerShell
+# Windows — check all required ports are listening
 Get-NetTCPConnection -LocalPort 5000,5001,5173,27017 |
   Select-Object LocalPort, State | Sort-Object LocalPort
 ```
@@ -139,79 +158,78 @@ Expected:
 ```
 LocalPort  State
 ---------  -----
-     5000  Listen   # Node server
-     5001  Listen   # ML service
-     5173  Listen   # React client
-    27017  Listen   # MongoDB
+     5000  Listen   ← Node.js server
+     5001  Listen   ← Python ML service
+     5173  Listen   ← React frontend
+    27017  Listen   ← MongoDB
 ```
 
 ---
 
-## Quick start script (Windows)
+## Windows One-Click Start Script
+
+Save as `start-all.bat` in the project root:
 
 ```batch
 @echo off
-echo Starting Zoom Clone...
+echo Starting SecureMeet...
 
 :: MongoDB
 net start MongoDB
 
 :: Backend
 cd server
-start "Backend" cmd /k "npm run dev"
+start "SecureMeet Backend" cmd /k "npm run dev"
 cd ..
 
 :: ML Service
 cd ML_model
-start "ML Service" cmd /k "venv\Scripts\activate && python ml_service.py"
+start "SecureMeet ML" cmd /k "venv\Scripts\activate && python ml_service.py"
 cd ..
 
 :: Frontend
 cd client
-start "Frontend" cmd /k "npm run dev"
+start "SecureMeet Frontend" cmd /k "npm run dev"
 cd ..
 
-echo Open http://localhost:5173
+echo.
+echo All services starting. Open https://localhost:5173
 pause
 ```
 
 ---
 
-## Troubleshooting
+## Route Reference
 
-| Symptom | Fix |
-|---------|-----|
-| Login fails with 500 | `JWT_SECRET` not set in `server/.env` |
-| ML model shows "Initializing..." forever | ML service not running on port 5001 |
-| DeepFake Guard shows results but ML panel empty | Check `PYTHON_ML_SERVICE_URL` in `server/.env` |
-| Camera not working | Must be on HTTPS or localhost; check browser permissions |
-| "Too many requests" on login | Rate limiter — wait 15 min or restart server in dev |
-| LiveKit connection fails | Check `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` in `.env` |
+| URL | Page | Auth Required |
+|-----|------|:---:|
+| `/` | Home / Landing | No |
+| `/login` | Sign in | No |
+| `/register` | Create account | No |
+| `/dashboard` | Meeting management | Yes |
+| `/profile` | User profile | Yes |
+| `/join/:meetingId` | Pre-join camera preview | No |
+| `/meeting/:meetingId` | Live video call | No* |
+| `/meeting/:meetingId/fraud-dashboard` | Full AI analytics | Yes |
+| `/meeting/:meetingId/summary` | Post-meeting summary | No |
+
+> *Meeting page validates LiveKit token server-side.
 
 ---
 
-## Project Structure
+## Troubleshooting
 
-```
-zoom-clone/
-├── client/           # React + Vite + Tailwind frontend
-│   ├── src/
-│   │   ├── components/   # DeepfakeMonitor, ErrorBoundary, etc.
-│   │   ├── pages/        # Meeting, FraudDashboard, etc.
-│   │   └── services/     # API client
-│   └── .env
-├── server/           # Express + TypeScript + Socket.IO backend
-│   ├── src/
-│   │   ├── routes/       # auth, meetings, deepfake
-│   │   ├── models/       # User, Meeting, DeepfakeLog, ChatMessage
-│   │   ├── middleware/   # auth JWT
-│   │   ├── utils/        # livekit token generator
-│   │   └── socket.ts     # real-time chat + room events
-│   ├── Dockerfile
-│   └── .env
-├── ML_model/         # Python Flask deepfake detection service
-│   ├── ml_service.py
-│   ├── requirements.txt
-│   └── Dockerfile
-└── docker-compose.yml
-```
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Login returns 500 error | `JWT_SECRET` missing | Add to `server/.env` |
+| "ML Service unavailable" toast | Python service not running | Start `python ml_service.py` on port 5001 |
+| Deepfake Guard shows "Connecting…" forever | Wrong ML URL in server env | Check `PYTHON_ML_SERVICE_URL` in `server/.env` |
+| "View Full Fraud Dashboard" goes to 404 | Old code (fixed in latest) | Pull latest + rebuild |
+| Camera not accessible | Not HTTPS or localhost | Use `https://localhost:5173` |
+| "Too many requests" on login | Rate limiter (30 req / 15 min) | Wait 15 min or restart server |
+| LiveKit fails immediately | Wrong credentials | Check `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` |
+| Trust score always red | ML in fallback mode + poor lighting | Improve lighting; check if model file exists |
+| ML model always shows "Fallback" | `deepfake_xgb_model.joblib` missing | Add model file to `ML_model/deepfake_detection/...` |
+| Certificate warning in browser | Self-signed cert (normal) | Click Advanced → Proceed to localhost |
+| Video works but chat is empty | Socket.IO not connecting | Check server logs for Socket.IO errors |
+| Port already in use | Previous process still running | Kill existing process or change `PORT` in `.env` |

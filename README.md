@@ -1,324 +1,214 @@
-# 🎥 ZoomClone — AI-Powered Video Conferencing Platform
+# SecureMeet — AI-Powered Video Conferencing
 
-A full-featured, production-ready video conferencing platform built with React, Node.js, LiveKit, and MongoDB — enhanced with an AI-based **DeepFake Detection Engine** and a **Host Verification Dashboard**.
-
----
-
-## ✨ Features
-
-### 🧑‍💻 Core Conferencing
-- ✅ User registration & login (JWT + httpOnly cookies)
-- ✅ Instant meeting creation with unique shareable invite links
-- ✅ **Schedule for Later** — Schedule meetings for a future date and time
-- ✅ **Share Button** — Native Web Share API integration (mobile) with clipboard fallback (desktop)
-- ✅ **Meeting Details Modal** — View meeting statistics, deepfake detections, evidence snapshots
-- ✅ LiveKit-powered real-time video & audio conferencing
-- ✅ Grid layout with automatic speaker detection
-- ✅ Mute/unmute mic & camera controls
-- ✅ Screen sharing support
-- ✅ In-meeting real-time chat (Socket.IO)
-- ✅ Meeting timer display
-- ✅ Copy invite link with one click
-- ✅ Keyboard shortcuts (`M` = toggle mic, `V` = toggle camera)
-- ✅ Pre-join camera preview page
-- ✅ Post-meeting summary page
-- ✅ Dark mode UI with Zoom-style toolbar
-- ✅ Resizable panels — Chat, Participants, and Deepfake Monitor panels can be resized from left edge (280-600px)
-- ✅ Movable panels — Panels can be dragged and repositioned when unpinned from default positions
-- ✅ Dynamic toolbar positioning — Meeting toolbar shifts left when panels open to make room
-- ✅ Real-time participant tracking — Live participant count in Fraud Dashboard and Deepfake Monitor
-- ✅ Sparkline charts — Visual trust score history with real-time updates
-- ✅ Fraud Guard toolbar button — Quick access to Fraud Dashboard from meeting toolbar
-
-### 👥 Participant Management
-- ✅ Participant panel with mic & camera status indicators
-- ✅ **Dynamic Host Badge** — the meeting creator is identified and shown as "Host" in all participants' panels using LiveKit metadata (no hardcoding)
-- ✅ Accurate identity resolution: authenticated users are matched by their unique User ID
-
-- ✅ Real-time deepfake analysis powered by **Custom ML Pipeline** (TensorFlow + XGBoost)
-- ✅ Eye Aspect Ratio (EAR) blink detection — flags abnormal blink rates
-- ✅ Nose-to-cheek landmark gaze estimation — detects abnormal gaze shift patterns
-- ✅ Micro-movement analysis — detects unnaturally still faces
-- ✅ **Custom ZPPM AI Model** — Server-side deepfake detection with behavioral + CNN fusion
-- ✅ **Fused TrustScore** (0–100) — Weighted combination of behavioral signals (30%) and AI model probability (70%)
-- ✅ Configurable — guard can be toggled per user
-- ✅ Events logged to MongoDB with AI confidence labels and JPEG snapshot evidence
-
-### 📊 Host Fraud Dashboard
-- ✅ Per-meeting deepfake event log viewer at `/meeting/:id/fraud-dashboard`
-- ✅ **Trust Score Timeline** chart — shows both Integrated Trust and raw AI Model Confidence
-- ✅ Summary cards — total snapshots, **AI model detections**, flagged events, min/avg trust score
-- ✅ Evidence snapshot viewer for each flagged event with AI classification labels
-- ✅ Export full event log as JSON for audit
-
-### 🔒 Security & Auth
-- ✅ JWT stored in httpOnly cookies (XSS-safe)
-- ✅ Protected routes — Fraud Dashboard accessible only to authenticated users
-- ✅ Host-only meeting termination endpoint (validated server-side)
-- ✅ Package vulnerability patching via `npm audit fix`
+> Enterprise-grade video conferencing with real-time AI deepfake detection, built on LiveKit, React, Node.js, and Python.
 
 ---
 
-## 🏗️ Architecture
+## Features
 
-```
-                        ┌─────────────────────────────────┐
-                        │          React Frontend         │
-                        │   (Vite + TypeScript + Tailwind)│
-                        │                                 │
-                        │  ┌────────────┐ ┌─────────────┐ │
-                        │  │  LiveKit   │ │  MediaPipe  │ │
-                        │  │  Room SDK  │ │ Face Mesh   │ │
-                        │  └─────┬──────┘ └──────┬──────┘ │
-                        └────────┼───────────────┼────────┘
-                                 │               │ TrustScore + Snapshot
-               WebSocket (video) │               ▼
-               ┌─────────────────┘    ┌──────────────────────┐
-               │                      │   Express Backend    │
-               ▼                      │   (Node + TypeScript)│
-  ┌────────────────────────┐          │                      │
-  │   LiveKit SFU Server   │          │  /api/auth           │
-  │   (Docker, port 7880)  │          │  /api/meetings       │
-  └────────────────────────┘          │  /api/deepfake ──────┼──▶ Python ML Service
-                                      └──────────┬───────────┘    (Port 5001)
-                                                 │                        │
-                                         ┌───────▼───────┐          ┌────▼───----─┐
-                                         │   MongoDB     │          │  ML Pipeline|
-                                         │  (port 27017) │          │ (TF+XGB)    |
-                                         └───────────────┘          └─────────----┘
-```
+### Core Video Conferencing
+- JWT authentication with httpOnly cookies (XSS-safe)
+- Instant meeting creation with shareable invite links
+- Schedule meetings for future dates
+- LiveKit-powered HD video & audio (WebRTC SFU)
+- Grid layout with automatic speaker detection
+- Mute/unmute mic & camera — keyboard shortcuts `M` / `V`
+- Multi-camera device switcher in the toolbar
+- Screen sharing
+- Real-time chat via Socket.IO with message history
+- Pre-join camera preview with device selection
+- Post-meeting summary with duration
+- Draggable & resizable panels (Chat, Participants, Deepfake Monitor, Fraud Guard)
 
-## 🎛️ Resizable & Movable UI Components
+### AI Deepfake Detection
+- **Client-side** — MediaPipe Face Mesh for blink detection, gaze estimation, micro-movement analysis
+- **Server-side** — Python ML service: CNN (ResNet50) + XGBoost fusion classifier
+- **Fused TrustScore** — 30% behavioral signals + 70% AI model probability
+- ML service status shown in real-time: Active / Offline / Connecting
+- Evidence snapshots (JPEG) captured and stored on detection events
+- DeepFake Guard toggleable per session from Meeting Settings
 
-The meeting interface features a flexible, customizable layout:
+### Fraud Guard Dashboard
+- Live slide-in panel during meetings with auto-refresh every 5s
+- Per-participant trust score cards with real/fake ML classification
+- Full-page analytics at `/meeting/:id/fraud-dashboard`:
+  - Trust Score Timeline with danger (40%) and caution (70%) reference lines
+  - Summary cards: logs, ML detections, flagged events, avg/min trust
+  - Evidence snapshot viewer with expandable modal
+  - Export as JSON or CSV
 
-| Component            | Resizable (Width)         | Resizable (Height)         | Movable           | Panel Sync               |
-|----------------------|---------------------------|----------------------------|-------------------|--------------------------|
-| `ChatPanel`          | ✅ Left edge (280-600px)  | ✅ Bottom (when floating) | ✅ Drag handle   | ✅ Video & toolbar shift |
-| `ParticipantPanel`   | ✅ Left edge (280-600px)  | ✅ Bottom (when floating) | ✅ Drag handle   | ✅ Video & toolbar shift |
-| `DeepfakeMonitor`    | ✅ Left edge (200-400px)  | ✅ Bottom                 | ✅ Drag header   | Floating overlay         |
-| `FraudDashboardPanel`| ✅ Left edge (280-600px)  | ❌ (full height)          | ❌ (side docked) | ✅ Video & toolbar shift |
-| `MeetingToolbar`     | ❌                        | ❌                        | ✅ Drag handle   | Shifts with panels       |
-
-### How It Works
-
-1. **Default Position**: Panels snap to the right edge with full height
-2. **Unpin**: Click the pin button to detach and enable dragging
-3. **Resize**: Drag left edge to adjust width (all panels)
-4. **Move**: Drag header/handle to reposition (floating mode)
-5. **Dynamic Layout**: Video area and toolbar automatically adjust when panels open/close
-
-### 0. Start the Python ML Service (Required for Deepfake Detection)
-
-```bash
-cd zoom-clone
-
-# Windows
-start-ml-service.bat
-
-# Linux/Mac
-chmod +x start-ml-service.sh
-./start-ml-service.sh
-```
-
-The ML Service runs on `http://localhost:5001` and analyzes video frames for deepfake detection.
-
-### 1. Start Docker services (LiveKit + MongoDB)
-
-```bash
-cd zoom-clone
-docker compose up -d
-```
-
-This starts:
-- **LiveKit server** on `ws://localhost:7880`
-- **MongoDB** on `localhost:27017`
-
-### 2. Start the backend server
-
-```bash
-cd server
-npm install
-npm run dev
-```
-
-Server runs on `http://localhost:5000`
-
-### 3. Start the frontend
-
-```bash
-cd client
-npm install
-npm run dev
-```
-
-Frontend runs on `http://localhost:5173`
-
-### 4. Open the app
-
-Visit **`http://localhost:5173`** in your browser.
+### Security
+- JWT in httpOnly cookies — no localStorage tokens
+- bcrypt password hashing (min 8 characters)
+- Rate limiting: 30 auth attempts per 15 min, 5 ML frames/sec per IP
+- All protected routes require authentication
+- ML service only accepts calls from the Node server (CORS-restricted)
 
 ---
 
-## 📁 Project Structure
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                     React Frontend (Vite)                     │
+│            TypeScript + Tailwind CSS + LiveKit SDK            │
+│                                                               │
+│  ┌────────────────────┐     ┌───────────────────────────────┐ │
+│  │  LiveKit Room SDK  │     │  MediaPipe Face Mesh          │ │
+│  │  (WebRTC video)    │     │  (blink / gaze / movement)    │ │
+│  └─────────┬──────────┘     └──────────────┬────────────────┘ │
+└────────────┼──────────────────────────────┼──────────────────┘
+             │ WebRTC                        │ frames + scores
+             ▼                               ▼
+┌────────────────────────────────────────────────────────────┐
+│                  Node.js + Express + TypeScript              │
+│                                                              │
+│  /api/auth          /api/meetings        /api/deepfake/*     │
+│  Socket.IO (chat)   LiveKit token gen    Rate limited        │
+│       │                   │                    │             │
+│       ▼                   ▼                    ▼             │
+│    MongoDB            LiveKit Cloud    Python ML Service      │
+│  (Users, Meetings,    (SFU media)      Flask · port 5001     │
+│   DeepfakeLogs,                        OpenCV · XGBoost      │
+│   ChatMessages)                        ResNet50 CNN          │
+└────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS, DM Sans |
+| Icons | Lucide React |
+| Video / Audio | LiveKit Cloud (WebRTC SFU) |
+| Face Analysis | MediaPipe Face Mesh (client-side, no server round-trip) |
+| Charts | Recharts |
+| Backend | Node.js 18+, Express, TypeScript, Socket.IO |
+| Database | MongoDB 7 (Mongoose) |
+| ML Service | Python 3.10+, Flask, OpenCV, TensorFlow, XGBoost, MediaPipe |
+| Auth | JWT (httpOnly cookies) + bcrypt |
+| Containerisation | Docker + Docker Compose |
+
+---
+
+## Project Structure
 
 ```
 zoom-clone/
-├── client/                       # React frontend (Vite + TS)
+├── client/                   # React frontend
 │   ├── src/
-│   │   ├── components/
-│   │   │   ├── ParticipantPanel.tsx    # Resizable & movable panel with dynamic host badge
-│   │   │   ├── ChatPanel.tsx           # Resizable & movable chat sidebar
-│   │   │   ├── DeepfakeMonitor.tsx     # Resizable, movable overlay with sparkline charts
-│   │   │   ├── FraudDashboardPanel.tsx # Resizable side panel with real-time participant tracking
-│   │   │   ├── MeetingToolbar.tsx      # Custom controls with dynamic positioning
-│   │   │   ├── MeetingHeader.tsx       # Title + connection status
-│   │   │   ├── MeetingSettingsModal.tsx
-│   │   │   └── ...
-│   │   ├── pages/
-│   │   │   ├── Meeting.tsx             # Main meeting room with panel management
-│   │   │   ├── JoinMeeting.tsx         # Pre-join preview + auth identity
-│   │   │   ├── FraudDashboard.tsx      # Host deepfake dashboard + chart
-│   │   │   ├── Dashboard.tsx           # User's meeting list
-│   │   │   └── ...
-│   │   ├── context/                    # Auth context (JWT)
-│   │   ├── services/api.ts             # Axios API client
-│   │   └── utils/                      # Toast helpers
-│   └── vite.config.ts
+│   │   ├── components/       # Reusable UI components
+│   │   │   ├── Navbar.tsx           # Sticky nav with active links + avatar dropdown
+│   │   │   ├── MeetingToolbar.tsx   # Lucide icon toolbar (no emojis)
+│   │   │   ├── MeetingHeader.tsx    # Meeting title + connection status
+│   │   │   ├── DeepfakeMonitor.tsx  # Floating AI detection panel
+│   │   │   ├── FraudDashboardPanel.tsx  # Slide-in fraud guard panel
+│   │   │   ├── ChatPanel.tsx        # Draggable real-time chat
+│   │   │   ├── ParticipantPanel.tsx # Participant list with mic/cam status
+│   │   │   └── MeetingSettingsModal.tsx
+│   │   ├── pages/            # Route-level pages
+│   │   │   ├── Home.tsx             # Landing page
+│   │   │   ├── Login.tsx / Register.tsx
+│   │   │   ├── Dashboard.tsx        # Meeting management
+│   │   │   ├── Meeting.tsx          # Main video conferencing page
+│   │   │   ├── JoinMeeting.tsx      # Pre-join camera preview
+│   │   │   ├── FraudDashboard.tsx   # Full analytics page
+│   │   │   ├── MeetingSummary.tsx   # Post-meeting summary
+│   │   │   └── ProfilePage.tsx
+│   │   ├── context/          # AuthContext (JWT session)
+│   │   ├── services/         # Axios API client
+│   │   └── utils/            # Toast helpers
+│   ├── .env                  # VITE_LIVEKIT_URL (gitignored)
+│   ├── .env.example          # Template
+│   └── tailwind.config.js    # Unified color system + safelist
 │
-├── server/                       # Express backend (Node + TS)
+├── server/                   # Express backend
 │   ├── src/
-│   │   ├── models/
-│   │   │   ├── Meeting.ts              # Meeting schema (hostId, status)
-│   │   │   ├── User.ts                 # User schema
-│   │   │   └── DeepfakeLog.ts          # Deepfake event logs
 │   │   ├── routes/
-│   │   │   ├── auth.ts                 # Register, login, logout, /me
-│   │   │   ├── meetings.ts             # Create, list, token (host metadata), end
-│   │   │   └── deepfake.ts             # /analyze, /log event, /logs/:meetingId
-│   │   ├── utils/
-│   │   │   └── livekit.ts              # Token generator (with metadata support)
-│   │   ├── middleware/auth.ts          # JWT validation
-│   │   └── socket.ts                   # Socket.IO chat setup
-│   └── tsconfig.json
+│   │   │   ├── auth.ts       # Register, login, logout, profile
+│   │   │   ├── meetings.ts   # CRUD + LiveKit token generation
+│   │   │   └── deepfake.ts   # analyze, log, logs, health, reset-session
+│   │   ├── models/           # User, Meeting, DeepfakeLog, ChatMessage
+│   │   ├── middleware/       # JWT auth middleware
+│   │   ├── utils/            # LiveKit token generator
+│   │   ├── socket.ts         # Socket.IO chat + room events
+│   │   └── index.ts          # App entry point + rate limiters
+│   ├── .env                  # Server secrets (gitignored)
+│   ├── .env.example          # Template
+│   └── Dockerfile
 │
-├── ML_model/                     # Python ML Service for deepfake detection
-│   ├── deepfake_detection-Hariom_backend/
-│   │   ├── deepfake_detection/
-│   │   │   └── deepfake_project/       # TensorFlow + XGBoost ML pipeline
-│   │   └── app.py                      # Flask API (port 5001)
-│   └── deepfake_project/
-│       └── feature_extraction/
+├── ML_model/                 # Python deepfake detection service
+│   ├── ml_service.py         # Flask app + DeepfakeDetectionPipeline
+│   ├── requirements.txt      # All Python dependencies
+│   └── Dockerfile
 │
-├── docker-compose.yml            # LiveKit SFU + MongoDB
-├── README.md                     # Project overview & quick start
-├── WORKFLOW.md                   # Detailed architecture & data flow
-├── architecture.md.resolved      # System architecture diagram
-└── .gitignore
+├── docker-compose.yml        # MongoDB + LiveKit + server + ML service
+├── start-ml-service.bat      # Windows ML service launcher
+├── start-ml-service.sh       # Linux/Mac ML service launcher
+└── RUN_GUIDE.md              # Step-by-step setup instructions
 ```
 
 ---
 
-## 🌍 Environment Variables
+## Quick Start
 
-Create a `server/.env` file:
+See **[RUN_GUIDE.md](./RUN_GUIDE.md)** for the complete guide.
 
+```bash
+# 1. Start MongoDB
+docker compose up mongodb -d
+
+# 2. Start Node backend
+cd server && npm install && npm run dev
+
+# 3. Start Python ML service
+cd ML_model && python ml_service.py
+
+# 4. Start React frontend
+cd client && npm install && npm run dev
+```
+
+Open **https://localhost:5173**
+
+---
+
+## Environment Variables
+
+### `server/.env`
 ```env
 PORT=5000
 MONGODB_URI=mongodb://localhost:27017/zoom-clone
-JWT_SECRET=your_super_secret_key
-LIVEKIT_API_KEY=devkey
-LIVEKIT_API_SECRET=secret
-LIVEKIT_URL=ws://localhost:7880
+JWT_SECRET=your_long_random_secret_here_min_32_chars
 CLIENT_URL=http://localhost:5173
+LIVEKIT_API_KEY=your_livekit_api_key
+LIVEKIT_API_SECRET=your_livekit_api_secret
+LIVEKIT_URL=wss://your-project.livekit.cloud
 PYTHON_ML_SERVICE_URL=http://localhost:5001
 ```
 
-| Variable                | Default                                   | Description                      |
-|-------------------------|-------------------------------------------|----------------------------------|
-| `PORT`                  | `5000`                                    | Server port                      |
-| `MONGODB_URI`           | `mongodb://localhost:27017/zoom-clone`    | MongoDB connection string        |
-| `JWT_SECRET`            | *(set this)*                              | JWT signing key                  |
-| `LIVEKIT_API_KEY`       | `devkey`                                  | LiveKit API key                  |
-| `LIVEKIT_API_SECRET`    | `secret`                                  | LiveKit API secret               |
-| `LIVEKIT_URL`           | `ws://localhost:7880`                     | LiveKit server WebSocket URL     |
-| `CLIENT_URL`            | `http://localhost:5173`                   | Frontend origin (for CORS)       |
-| `PYTHON_ML_SERVICE_URL` | `http://localhost:5001`                   | Python ML Service URL            |
+### `client/.env`
+```env
+VITE_LIVEKIT_URL=wss://your-project.livekit.cloud
+```
 
-> **Note:** See `ML_INTEGRATION.md` for detailed ML service configuration.
+> Get LiveKit credentials free at [livekit.io](https://livekit.io) → Settings → API Keys.  
+> **Never commit `.env` files** — both are in `.gitignore`.
 
 ---
 
-The `DeepfakeMonitor` component combines local behavioral analysis with server-side AI model verification:
-1. **Face Landmark Detection (Behavioral)** — Uses Google's MediaPipe Face Mesh to track 468 facial points locally.
-2. **Signal Analysis** — Computes Eye Aspect Ratio (EAR), Gaze Offset, and Micro-movement jitter.
-3. **AI Model Verification** — Every 5 seconds, a frame is captured and sent to the Python ML Service (`ml_service.py`) running on port 5001.
-4. **ML Pipeline** — The Python service accumulates frames, runs TensorFlow CNN + XGBoost fusion classifier for prediction.
-5. **Fused Trust Score** — A weighted composite score:
-    - **30% weight**: Local behavioral consistency (blinking, jitter, gaze).
-    - **70% weight**: Custom ML model classification probability.
-6. **Logging** — Events below the trust threshold are logged to MongoDB with JPEG snapshots and ML classification labels.
+## Trust Score Reference
+
+| Score | Status | Meaning |
+|-------|--------|---------|
+| 90–100 | 🟢 Stable | High confidence — participant is real |
+| 70–89 | 🟡 Good | Generally trustworthy, minor anomalies |
+| 40–69 | 🟠 Caution | Suspicious patterns — may need verification |
+| 0–39 | 🔴 Alert | High probability of deepfake or spoof |
 
 ---
 
-## 📋 API Endpoints
-
-### Auth
-| Method | Endpoint             | Description             |
-|--------|----------------------|-------------------------|
-| POST   | `/api/auth/register` | Register user           |
-| POST   | `/api/auth/login`    | Login (sets JWT cookie) |
-| POST   | `/api/auth/logout`   | Logout                  |
-| GET    | `/api/auth/me`       | Get current user        |
-
-### Meetings
-| Method | Endpoint                         | Description                         |
-|--------|----------------------------------|-------------------------------------|
-| POST   | `/api/meetings`                  | Create meeting (auth required)      |
-| GET    | `/api/meetings`                  | List user's meetings (auth required)|
-| GET    | `/api/meetings/:id`              | Get meeting info (public)           |
-| POST   | `/api/meetings/:id/token`        | Get LiveKit token (host metadata)   |
-| POST   | `/api/meetings/:id/end`          | End meeting (host only)             |
-
-**Meeting Status Values:**
-- `active` — Meeting is live and joinable
-- `ended` — Meeting has been terminated
-- `scheduled` — Meeting scheduled for future date/time
-
-### Deepfake
-| Method | Endpoint                        | Description                          |
-|--------|---------------------------------|--------------------------------------|
-| POST   | `/api/deepfake/analyze`         | Analyze frame via Python ML Service  |
-| POST   | `/api/deepfake/log`             | Log a deepfake detection event       |
-| GET    | `/api/deepfake/logs/:meetingId` | Get all logs for a meeting (auth)    |
-| GET    | `/api/deepfake/health`          | Check ML service health              |
-
----
-
-## 🛠️ Tech Stack
-
-| Layer        | Technology                                      |
-|--------------|-------------------------------------------------|
-| Frontend     | React 18, Vite, TypeScript, TailwindCSS         |
-| Video/Audio  | LiveKit SDK + LiveKit SFU (Docker)              |
-| Real-time    | Socket.IO                                       |
-| AI Detection | Custom ML Pipeline (TensorFlow + XGBoost)       |
-| ML Service   | Python Flask (Port 5001)                        |
-| Charts       | Recharts                                        |
-| Backend      | Node.js, Express.js, TypeScript                 |
-| Database     | MongoDB (Mongoose)                              |
-| Auth         | JWT (httpOnly cookies)                          |
-| Dev Tools    | ts-node-dev, eslint, concurrently               |
-
----
-
-## 📚 Additional Documentation
-
-- **[ML_INTEGRATION.md](ML_INTEGRATION.md)** — Deepfake detection integration guide
-- **[server/.env.example](server/.env.example)** — Server environment configuration
-
----
-
-## 📜 License
+## License
 
 MIT

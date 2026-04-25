@@ -1,127 +1,189 @@
-# Deepfake Detection Integration
+# ML Integration — Deepfake Detection
 
-This document describes how the real-time deepfake detection system is integrated with the Zoom-Clone video conferencing platform.
+This document explains how the real-time AI deepfake detection system works end-to-end, from camera frame capture to the Fraud Dashboard.
 
-## Architecture Overview
+---
+
+## System Overview
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Video Call    │────▶│  Node.js Server│────▶│ Python ML       │
-│   (Frontend)    │◄────│   (Port 5000)   │◄────│ Service (5001)  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-        │                        │                        │
-        ▼                        ▼                        ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ DeepfakeMonitor │     │ /api/deepfake/* │     │ ML Pipeline     │
-│ Component       │     │ Routes          │     │ (TensorFlow)    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ React Frontend                                                   │
+│                                                                  │
+│  DeepfakeMonitor.tsx                                             │
+│  ├── MediaPipe Face Mesh  (blink · gaze · micro-movements)      │
+│  ├── Behavioural TrustScore (30% weight in final score)         │
+│  └── Every 5s → POST /api/deepfake/analyze (base64 frame)       │
+└─────────────────────────────────────────────┬───────────────────┘
+                                              │ frame + session_id
+                                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Node.js Backend  (port 5000)                                     │
+│                                                                  │
+│  POST /api/deepfake/analyze                                      │
+│  ├── Validates JWT                                               │
+│  ├── Rate limited: 5 req/sec per IP                             │
+│  ├── Forwards frame to Python ML service                        │
+│  └── Returns merged result to frontend                          │
+└─────────────────────────────────────────────┬───────────────────┘
+                                              │ HTTP POST
+                                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Python ML Service  (port 5001)                                   │
+│                                                                  │
+│  /analyze-frame                                                  │
+│  ├── Face detection (Haar Cascade)                               │
+│  ├── Accumulate frames per session (needs 10+ frames)           │
+│  ├── DeepfakeDetectionPipeline.predict_video()                  │
+│  │   ├── Blink detection (EAR)                                  │
+│  │   ├── Head pose estimation (yaw / pitch / roll)              │
+│  │   ├── CNN visual features (ResNet50 backbone)                │
+│  │   └── XGBoost fusion classifier                              │
+│  └── Returns: label · confidence · probabilities · features     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Components
+---
 
-### 1. Frontend (DeepfakeMonitor.tsx)
-- Captures video frames from the user's camera every 5 seconds
-- Sends base64-encoded frames to the backend
-- Displays real-time trust score and ML prediction
-- Logs suspicious activity to the Fraud Dashboard
+## Trust Score Calculation
 
-### 2. Node.js Backend (deepfake.ts)
-- Receives frames from frontend
-- Forwards to Python ML service for analysis
-- Stores results in MongoDB for dashboard
-- Provides APIs:
-  - `POST /api/deepfake/analyze` - Analyze a frame
-  - `POST /api/deepfake/log` - Store detection log
-  - `GET /api/deepfake/logs/:meetingId` - Get logs for dashboard
-  - `GET /api/deepfake/health` - Health check
+The final TrustScore shown in the panel is a weighted blend:
 
-### 3. Python ML Service (ml_service.py)
-- Runs on port 5001
-- Receives frames via HTTP API
-- Accumulates frames into short video clips (10-30 frames)
-- Runs deepfake detection pipeline:
-  - Face detection (Haar Cascade / MediaPipe)
-  - Blink detection
-  - Head pose estimation
-  - CNN visual feature extraction
-  - Fusion classification (Random Forest/XGBoost)
-- Returns prediction with confidence scores
-
-## How It Works
-
-### Real-Time Analysis Flow
-
-1. **Frame Capture**: `DeepfakeMonitor` captures frames from the user's video stream
-2. **Frame Analysis**: Sends frame to `/api/deepfake/analyze`
-3. **ML Processing**: 
-   - Server forwards to Python ML service
-   - ML service accumulates frames into session buffers
-   - When enough frames collected (10+), runs full pipeline analysis
-   - Returns prediction: `{label: "real"|"fake", confidence: 0-1}`
-4. **Trust Score Calculation**: Combines ML score with behavioral signals
-5. **Dashboard Update**: Logs suspicious activity to Fraud Dashboard
-
-### Session Management
-
-Each participant gets a unique session ID (`{meetingId}_{participantId}`):
-- Frames are accumulated per session
-- Analysis improves as more frames are collected
-- Sessions auto-expire after 1 hour
-- Sessions can be manually reset via `/reset-session`
-
-## Running the ML Service
-
-### Windows
-```bash
-start-ml-service.bat
+```
+TrustScore = (Behavioural × 0.30) + (ML Model × 0.70)
 ```
 
-### Linux/Mac
-```bash
-./start-ml-service.sh
+**Behavioural signals** (client-side, MediaPipe):
+
+| Signal | What it checks | Penalty |
+|--------|----------------|---------|
+| Blink rate | < 5/min or = 0 → unnaturally still | −15 to −30 |
+| Blink rate | > 45/min → unnaturally rapid | −20 |
+| Micro-movements | Low jitter → static / pre-recorded | −10 to −25 |
+| Gaze shifts | Too static or too erratic | −15 to −20 |
+
+**ML model** (server-side, Python):
+- `1 − final_score` × 100, where `final_score` is the XGBoost fake probability (0–1)
+
+---
+
+## Trust Score Interpretation
+
+| Range | Badge | Meaning |
+|-------|-------|---------|
+| 90–100 | 🟢 Stable | Very high confidence participant is real |
+| 70–89 | 🟡 Good | Generally trustworthy, minor anomalies |
+| 40–69 | 🟠 Caution | Suspicious — further monitoring recommended |
+| 0–39 | 🔴 Alert | High probability of deepfake or spoof |
+
+A score below 40 triggers: deepfake alert badge on toolbar, red border on Fraud Dashboard panel, JPEG evidence snapshot saved to MongoDB.
+
+---
+
+## Session Management
+
+Each participant has a unique session:
+
+```
+session_id = "{meetingId}_{participantId}"
 ```
 
-### Manual Setup
-```bash
-cd ML_model
-python -m venv venv
+- Frames accumulate per session in the Python service's in-memory store
+- Full ML analysis runs once ≥ 10 frames are collected
+- Until then, the service returns `prediction: null` and the frontend shows "Collecting frames…"
+- Sessions auto-expire after **1 hour** via a background timer thread
+- Sessions can be manually reset via `POST /api/deepfake/reset-session`
 
-# Windows
-venv\Scripts\activate
+---
 
-# Linux/Mac
-source venv/bin/activate
+## API Reference
 
-pip install flask numpy opencv-python mediapipe scikit-learn pandas tensorflow keras xgboost joblib ultralytics
-python ml_service.py
-```
+### Node.js Backend APIs
 
-## Environment Variables
+All endpoints require JWT authentication (except `/health` which is internal).
 
-### Server (.env)
-```
-PYTHON_ML_SERVICE_URL=http://localhost:5001
-```
+#### `POST /api/deepfake/analyze`
+Sends a frame for ML analysis.
 
-### Client (.env)
-No ML-specific variables needed - uses server APIs.
-
-## API Endpoints (ML Service)
-
-### POST /analyze-frame
-Analyze a single frame for deepfake detection.
-
-**Request:**
+**Request body:**
 ```json
 {
-  "session_id": "meeting123_user456",
-  "image_base64": "data:image/jpeg;base64,/9j/4AAQ...",
-  "meeting_id": "meeting123",
-  "participant_id": "user456"
+  "imageBase64": "data:image/jpeg;base64,/9j/4AAQ...",
+  "meetingId": "abc-123",
+  "participantId": "user_xyz"
 }
 ```
 
 **Response:**
+```json
+{
+  "label": "real",
+  "score": 0.92,
+  "trustScore": 91.5,
+  "isLikelyFake": false,
+  "faceDetected": true,
+  "probabilities": { "real": 0.92, "fake": 0.08 },
+  "prediction": {
+    "label": "real",
+    "confidence": 0.92,
+    "probabilities": { "real": 0.92, "fake": 0.08 },
+    "features": {
+      "blink_rate": 14.2,
+      "interval_cv": 0.21,
+      "yaw_variance": 8.3,
+      "pitch_variance": 5.1,
+      "roll_variance": 3.7,
+      "cnn_score": 0.08,
+      "total_blinks": 12
+    },
+    "frame_count": 24
+  },
+  "mlModel": {
+    "type": "custom_zppm",
+    "frameCount": 24,
+    "features": { ... }
+  },
+  "frameMetrics": { "ear": 0.28, "blink_detected": false }
+}
+```
+
+#### `POST /api/deepfake/log`
+Stores a detection event in MongoDB.
+
+#### `GET /api/deepfake/logs/:meetingId`
+Returns all detection logs for a meeting (used by Fraud Dashboard).
+
+#### `GET /api/deepfake/health`
+Returns status of both the Node service and Python ML service.
+
+#### `POST /api/deepfake/reset-session`
+Resets the ML frame buffer for a session.
+
+---
+
+### Python ML Service APIs  (port 5001 — internal only)
+
+#### `GET /health`
+```json
+{
+  "status": "healthy",
+  "pipeline": "full",
+  "sessions_active": 3
+}
+```
+
+#### `POST /analyze-frame`
+**Request:**
+```json
+{
+  "session_id": "abc-123_user_xyz",
+  "image_base64": "/9j/4AAQ...",
+  "meeting_id": "abc-123",
+  "participant_id": "user_xyz"
+}
+```
+
+**Response (enough frames collected):**
 ```json
 {
   "success": true,
@@ -129,111 +191,118 @@ Analyze a single frame for deepfake detection.
   "prediction": {
     "label": "real",
     "confidence": 0.92,
-    "probabilities": {
-      "real": 0.92,
-      "fake": 0.08
-    },
-    "features": {
-      "blink_rate": 15.2,
-      "yaw_variance": 12.5,
-      "cnn_score": 0.15
-    },
-    "frame_count": 25
+    "probabilities": { "real": 0.92, "fake": 0.08 },
+    "features": { "blink_rate": 14.2, "cnn_score": 0.08, ... },
+    "frame_count": 24
   },
-  "trust_score": 92.0,
+  "trust_score": 91.5,
   "is_likely_fake": false,
-  "frame_metrics": {
-    "ear": 0.28,
-    "blink_detected": false
-  }
+  "frame_count": 24,
+  "frame_metrics": { "ear": 0.28, "blink_detected": false }
 }
 ```
 
-### POST /reset-session
-Reset analysis session for a participant.
-
-**Request:**
+**Response (still collecting frames):**
 ```json
 {
-  "session_id": "meeting123_user456"
+  "success": true,
+  "face_detected": true,
+  "prediction": null,
+  "frame_count": 7,
+  "trust_score": 50,
+  "is_likely_fake": false,
+  "frame_metrics": { "initializing": true, "frames_collected": 7 }
 }
 ```
 
-### GET /health
-Health check endpoint.
-
-**Response:**
+#### `POST /reset-session`
 ```json
-{
-  "status": "healthy",
-  "pipeline": "full",
-  "sessions_active": 5
-}
+{ "session_id": "abc-123_user_xyz" }
 ```
 
-## Trust Score Interpretation
+---
 
-| Score Range | Status | Meaning |
-|-------------|--------|---------|
-| 90-100 | 🟢 Stable | High confidence the participant is real |
-| 70-89 | 🟡 Caution | Generally trustworthy, some anomalies detected |
-| 40-69 | 🟠 Warning | Suspicious patterns, may need verification |
-| 0-39 | 🔴 Alert | High probability of deepfake/spoof |
+## ML Pipeline Modes
 
-## Fraud Dashboard
+### Full Mode (requires `deepfake_xgb_model.joblib`)
+1. Face detection via Haar Cascade
+2. Frame accumulation (10–30 frames per session)
+3. EAR blink detection
+4. 3D head pose estimation
+5. ResNet50 CNN visual feature extraction
+6. XGBoost fusion classification
+7. Returns confidence + full feature vector
 
-Access the fraud dashboard during a meeting:
-1. Click the **Settings** icon in the meeting toolbar
-2. Click **Open Fraud Dashboard**
-3. View real-time and historical detection results
+### Fallback Mode (no model file needed)
+Activates automatically when `deepfake_xgb_model.joblib` is missing.
+Uses image quality heuristics: face blur (Laplacian variance), face ratio, contrast.
+Still returns valid trust scores — just less accurate.
 
-The dashboard shows:
-- Live trust score timeline
-- Flagged detections with evidence snapshots
-- ML model predictions with confidence
-- Behavioral metrics (blinks, gaze, movements)
+To check which mode is active:
+```bash
+curl http://localhost:5001/health
+# "pipeline": "full"  or  "pipeline": "fallback"
+```
+
+---
+
+## Starting the ML Service
+
+### Windows
+```bat
+cd ML_model
+start-ml-service.bat
+```
+
+### Linux / Mac
+```bash
+cd ML_model
+./start-ml-service.sh
+```
+
+### Manual
+```bash
+cd ML_model
+python -m venv venv
+source venv/bin/activate      # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
+python ml_service.py
+```
+
+---
+
+## Fraud Dashboard — How to Access
+
+**During a meeting:**
+1. Click the **Guard** button in the meeting toolbar
+2. The Fraud Guard slide-in panel opens on the right
+3. Click **"View Full Fraud Dashboard"** to open the full analytics page
+
+**Direct URL:**
+```
+https://localhost:5173/meeting/{meetingId}/fraud-dashboard
+```
+
+---
 
 ## Troubleshooting
 
-### ML Service Not Available
-- Check if Python ML service is running on port 5001
-- Verify `PYTHON_ML_SERVICE_URL` in server `.env`
-- Check server logs for connection errors
+| Symptom | Fix |
+|---------|-----|
+| "ML Service unavailable" in meeting | Start `python ml_service.py` on port 5001 |
+| Trust score stuck at 50% | ML still collecting frames (need 10+). Wait 30–60s. |
+| "No face detected" in panel | Improve lighting, face the camera, avoid extreme angles |
+| Always shows Fallback mode | Add `deepfake_xgb_model.joblib` to the feature_extraction folder |
+| High false positives (real flagged as fake) | Improve lighting quality, keep camera stable, avoid shadows |
+| Panel shows "Connecting…" forever | Check `PYTHON_ML_SERVICE_URL=http://localhost:5001` in `server/.env` |
+| Evidence snapshot is blank | Only captured when `isLikelyFake=true` — normal if no detections |
 
-### No Face Detected
-- Ensure good lighting conditions
-- Participant should face the camera
-- Check if face is visible and not obstructed
-
-### Low Trust Scores
-- May indicate actual deepfake OR poor video quality
-- Check frame metrics for specific issues
-- Review behavioral signals (blinking, movement)
-
-### High False Positives
-- Adjust lighting to avoid shadows on face
-- Ensure stable camera position
-- Avoid extreme head angles
-
-## Model Details
-
-The detection pipeline uses:
-1. **Face Detection**: Haar Cascade / MediaPipe Face Mesh
-2. **Blink Detection**: EAR (Eye Aspect Ratio) calculation
-3. **Head Pose**: 3D head pose estimation
-4. **Visual Features**: ResNet50 CNN backbone
-5. **Fusion Classifier**: Random Forest or XGBoost ensemble
+---
 
 ## Performance Notes
 
-- Frame analysis takes ~1-3 seconds depending on hardware
-- Accumulates 10 frames before full analysis
-- Trust score updates every 5 seconds
-- ML service can handle multiple concurrent sessions
-
-## Security Considerations
-
-- ML service runs locally (no external API calls)
-- Video frames are processed in-memory only
-- Snapshots only saved when `isLikelyFake` is true
-- Session data auto-expires after 1 hour
+- Frame analysis: ~1–3 seconds per request (depends on hardware and GPU availability)
+- Minimum frames before full analysis: 10 (set in `ml_service.py`)
+- Analysis frequency: every 5 seconds (set in `DeepfakeMonitor.tsx`)
+- Maximum concurrent sessions: limited by available RAM (each session holds up to 30 frames in memory)
+- Session cleanup: every 10 minutes via background timer thread

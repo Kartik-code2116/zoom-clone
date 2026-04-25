@@ -1,0 +1,2 @@
+// This file was created by mistake during development and can be deleted.
+// The Navbar component is at: src/components/Navbar.tsx

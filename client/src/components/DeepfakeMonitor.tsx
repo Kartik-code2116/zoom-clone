@@ -2,9 +2,13 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import api from '../services/api';
 import { FaceMesh, Results } from '@mediapipe/face_mesh';
 import { useRemoteParticipants } from '@livekit/components-react';
-import { Activity, Shield, Eye, Timer, Zap, Users, AlertTriangle, X, ChevronUp } from 'lucide-react';
+import {
+  Activity, Shield, Eye, Timer, Zap, Users, AlertTriangle,
+  X, ChevronUp, ChevronDown, Wifi, WifiOff, Brain,
+} from 'lucide-react';
 
 type GazeDirection = 'center' | 'left' | 'right' | 'up' | 'down' | 'unknown';
+type MLServiceStatus = 'initializing' | 'active' | 'offline' | 'no-face';
 
 interface BlinkStats {
   blinkRatePerMin: number;
@@ -26,7 +30,6 @@ export interface DeepfakeStatus {
     label: string;
     score: number;
     probabilities: { real: number; fake: number };
-    // FIX: updated to match what ml_service.py actually returns
     features?: {
       total_blinks: number;
       blink_rate: number;
@@ -52,15 +55,15 @@ interface DeepfakeMonitorProps {
   participantId?: string;
 }
 
-const LEFT_EYE_POINTS = [362, 385, 387, 263, 373, 380];
-const RIGHT_EYE_POINTS = [33, 160, 158, 133, 153, 144];
+const LEFT_EYE_POINTS  = [362, 385, 387, 263, 373, 380];
+const RIGHT_EYE_POINTS = [33,  160, 158, 133, 153, 144];
 
 function getDistance(p1: { x: number; y: number }, p2: { x: number; y: number }) {
   return Math.hypot(p1.x - p2.x, p1.y - p2.y);
 }
 
 function calculateEAR(landmarks: any[], indices: number[]) {
-  const [p1, p2, p3, p4, p5, p6] = indices.map((i) => landmarks[i]);
+  const [p1, p2, p3, p4, p5, p6] = indices.map(i => landmarks[i]);
   const vert1 = getDistance(p2, p6);
   const vert2 = getDistance(p3, p5);
   const horiz = getDistance(p1, p4);
@@ -68,27 +71,25 @@ function calculateEAR(landmarks: any[], indices: number[]) {
   return (vert1 + vert2) / (2.0 * horiz);
 }
 
-function computeTrustScore({
-  blinkRatePerMin,
-  microMovementsScore,
-  gazeShiftFrequency,
-}: {
-  blinkRatePerMin: number;
-  microMovementsScore: number;
-  gazeShiftFrequency: number;
+function computeTrustScore({ blinkRatePerMin, microMovementsScore, gazeShiftFrequency }: {
+  blinkRatePerMin: number; microMovementsScore: number; gazeShiftFrequency: number;
 }): number {
   let score = 100;
-  if (blinkRatePerMin === 0) score -= 30;
-  else if (blinkRatePerMin < 5) score -= 15;
-  else if (blinkRatePerMin > 45) score -= 20;
-
-  if (microMovementsScore < 0.2) score -= 25;
+  if (blinkRatePerMin === 0)       score -= 30;
+  else if (blinkRatePerMin < 5)    score -= 15;
+  else if (blinkRatePerMin > 45)   score -= 20;
+  if (microMovementsScore < 0.2)   score -= 25;
   else if (microMovementsScore < 0.5) score -= 10;
-
-  if (gazeShiftFrequency < 0.1) score -= 15;
-  else if (gazeShiftFrequency > 3.0) score -= 20;
-
+  if (gazeShiftFrequency < 0.1)    score -= 15;
+  else if (gazeShiftFrequency > 3) score -= 20;
   return Math.max(0, Math.min(100, score));
+}
+
+/** Returns a hex colour for a 0-100 trust score — avoids Tailwind purging dynamic classes. */
+function trustColor(score: number): string {
+  if (score > 75) return '#10b981'; // emerald-500
+  if (score > 50) return '#f59e0b'; // amber-400
+  return '#ef4444';                 // red-500
 }
 
 const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
@@ -96,44 +97,39 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   meetingId,
   participantId,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const faceMeshRef = useRef<FaceMesh | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
+  const canvasRef          = useRef<HTMLCanvasElement | null>(null);
+  const faceMeshRef        = useRef<FaceMesh | null>(null);
+  const animationFrameRef  = useRef<number | null>(null);
+  const panelRef           = useRef<HTMLDivElement>(null);
 
   const remoteParticipants = useRemoteParticipants();
-  const totalParticipants = remoteParticipants.length + 1;
+  const totalParticipants  = remoteParticipants.length + 1;
 
-  const [trustHistory, setTrustHistory] = useState<number[]>([100]);
+  const [trustHistory,   setTrustHistory]   = useState<number[]>([100]);
   const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
-  // FIX: removed unused fps state
+  const [mlStatus, setMlStatus]             = useState<MLServiceStatus>('initializing');
+  const [showTechDetails, setShowTechDetails] = useState(false);
+  const [isVisible, setIsVisible]           = useState(true);
 
-  // FIX: initialise position safely using a lazy function to avoid stale window.innerWidth
   const [position, setPosition] = useState(() => ({
     x: Math.max(0, (typeof window !== 'undefined' ? window.innerWidth : 1280) - 280),
     y: 16,
   }));
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
-  const [panelWidth, setPanelWidth] = useState(256);
-  const [panelHeight, setPanelHeight] = useState(420);
-  const [isVisible, setIsVisible] = useState(true);
+  const [isDragging,      setIsDragging]      = useState(false);
+  const [dragStart,       setDragStart]       = useState({ x: 0, y: 0 });
+  const [panelWidth,      setPanelWidth]      = useState(260);
+  const [panelHeight,     setPanelHeight]     = useState(440);
   const [isResizingWidth, setIsResizingWidth] = useState(false);
-  const [isResizingHeight, setIsResizingHeight] = useState(false);
-  const MIN_WIDTH = 200;
-  const MAX_WIDTH = 400;
-  const MIN_HEIGHT = 300;
-  const MAX_HEIGHT = 600;
+  const [isResizingHeight,setIsResizingHeight]= useState(false);
+  const MIN_WIDTH = 220; const MAX_WIDTH  = 420;
+  const MIN_HEIGHT= 320; const MAX_HEIGHT = 600;
 
-  // FIX: clamp position on resize so panel never goes off-screen
+  // Clamp on window resize
   useEffect(() => {
-    const onResize = () => {
-      setPosition((prev) => ({
-        x: Math.min(prev.x, window.innerWidth - panelWidth),
-        y: Math.min(prev.y, window.innerHeight - panelHeight),
-      }));
-    };
+    const onResize = () => setPosition(prev => ({
+      x: Math.min(prev.x, window.innerWidth  - panelWidth),
+      y: Math.min(prev.y, window.innerHeight - panelHeight),
+    }));
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [panelWidth, panelHeight]);
@@ -144,28 +140,18 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
     gazeDirection: 'unknown',
     blinkStats: { blinkRatePerMin: 0, lastBlinkAt: null },
     behavioralSignals: { microMovementsScore: 1, gazeShiftFrequency: 0 },
-    mlResult: undefined,
-    frameMetrics: undefined,
   });
 
-  const mlDataRef = useRef<DeepfakeStatus['mlResult']>(undefined);
-  const frameMetricsRef = useRef<DeepfakeStatus['frameMetrics']>(undefined);
-  const lastAnalyzedAtRef = useRef<number>(0);
-
-  const historyRef = useRef<{
-    blinks: number[];
-    gazeShifts: number;
-    lastGaze: GazeDirection;
-    lastEAR: number;
-    lastLandmarks: any[] | null;
-  }>({
-    blinks: [],
+  const mlDataRef        = useRef<DeepfakeStatus['mlResult']>(undefined);
+  const frameMetricsRef  = useRef<DeepfakeStatus['frameMetrics']>(undefined);
+  const lastAnalyzedAtRef= useRef<number>(0);
+  const historyRef       = useRef({
+    blinks: [] as number[],
     gazeShifts: 0,
-    lastGaze: 'unknown',
+    lastGaze: 'unknown' as GazeDirection,
     lastEAR: 0.3,
-    lastLandmarks: null,
+    lastLandmarks: null as any[] | null,
   });
-
   const statsWindowStartRef = useRef<number>(performance.now());
   const BLINK_THRESHOLD = 0.2;
 
@@ -177,22 +163,21 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       'video[data-lk-video-source="true"]',
       '.lk-participant-tile video',
     ];
-    for (const selector of selectors) {
-      const videos = document.querySelectorAll(selector);
-      for (const video of videos) {
-        if (video instanceof HTMLVideoElement && video.videoWidth > 0) return video;
+    for (const sel of selectors) {
+      for (const v of document.querySelectorAll(sel)) {
+        if (v instanceof HTMLVideoElement && v.videoWidth > 0) return v;
       }
     }
-    const allVideos = document.querySelectorAll('video');
-    for (const video of allVideos) {
-      if (video.videoWidth > 0 && video.readyState >= 2) return video;
+    for (const v of document.querySelectorAll('video')) {
+      if (v instanceof HTMLVideoElement && v.videoWidth > 0 && v.readyState >= 2) return v;
     }
     return null;
   }, []);
 
+  // ── MediaPipe setup ────────────────────────────────────────────────
   useEffect(() => {
     faceMeshRef.current = new FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`,
     });
     faceMeshRef.current.setOptions({
       maxNumFaces: 1,
@@ -200,9 +185,7 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       minDetectionConfidence: 0.5,
       minTrackingConfidence: 0.5,
     });
-    faceMeshRef.current.onResults((results: Results) => {
-      onMediaPipeResults(results);
-    });
+    faceMeshRef.current.onResults((r: Results) => onMediaPipeResults(r));
 
     let frameCount = 0;
     const processFrame = async () => {
@@ -210,13 +193,11 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       if (video && faceMeshRef.current && canvasRef.current) {
         const ctx = canvasRef.current.getContext('2d');
         if (ctx) {
-          canvasRef.current.width = video.videoWidth || 640;
+          canvasRef.current.width  = video.videoWidth  || 640;
           canvasRef.current.height = video.videoHeight || 360;
           ctx.drawImage(video, 0, 0, canvasRef.current.width, canvasRef.current.height);
           frameCount++;
-          if (frameCount % 3 === 0) {
-            await faceMeshRef.current.send({ image: canvasRef.current });
-          }
+          if (frameCount % 3 === 0) await faceMeshRef.current.send({ image: canvasRef.current });
         }
       }
       animationFrameRef.current = requestAnimationFrame(processFrame);
@@ -228,41 +209,36 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (faceMeshRef.current) faceMeshRef.current.close();
     };
-  }, [findLocalVideoElement, meetingId, participantId]);
+  }, [findLocalVideoElement]);
 
+  // ── MediaPipe result handler ───────────────────────────────────────
   const onMediaPipeResults = (results: Results) => {
-    const now = performance.now();
+    const now   = performance.now();
     const state = historyRef.current;
-    let microMovementsScore = 1.0;
+    let microMovementsScore: number = 1.0;
     let gazeDirection: GazeDirection = state.lastGaze;
 
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    if (results.multiFaceLandmarks?.length > 0) {
       const landmarks = results.multiFaceLandmarks[0];
-      const leftEAR = calculateEAR(landmarks, LEFT_EYE_POINTS);
-      const rightEAR = calculateEAR(landmarks, RIGHT_EYE_POINTS);
-      const ear = (leftEAR + rightEAR) / 2.0;
+      const leftEAR   = calculateEAR(landmarks, LEFT_EYE_POINTS);
+      const rightEAR  = calculateEAR(landmarks, RIGHT_EYE_POINTS);
+      const ear       = (leftEAR + rightEAR) / 2.0;
 
-      if (ear < BLINK_THRESHOLD && state.lastEAR >= BLINK_THRESHOLD) {
-        state.blinks.push(now);
-      }
+      if (ear < BLINK_THRESHOLD && state.lastEAR >= BLINK_THRESHOLD) state.blinks.push(now);
       state.lastEAR = ear;
 
-      const nose = landmarks[1];
-      const leftCheek = landmarks[234];
+      const nose       = landmarks[1];
+      const leftCheek  = landmarks[234];
       const rightCheek = landmarks[454];
-      const faceWidth = getDistance(leftCheek, rightCheek);
+      const faceWidth  = getDistance(leftCheek, rightCheek);
       if (faceWidth > 0) {
         const ratio = getDistance(nose, leftCheek) / faceWidth;
-        if (ratio < 0.35) gazeDirection = 'left';
-        else if (ratio > 0.65) gazeDirection = 'right';
-        else gazeDirection = 'center';
+        gazeDirection = ratio < 0.35 ? 'left' : ratio > 0.65 ? 'right' : 'center';
       }
 
       if (state.lastLandmarks) {
         const jitter = getDistance(nose, state.lastLandmarks[1]);
-        if (jitter < 0.0001) microMovementsScore = 0.1;
-        else if (jitter > 0.05) microMovementsScore = 0.3;
-        else microMovementsScore = 0.9;
+        microMovementsScore = jitter < 0.0001 ? 0.1 : jitter > 0.05 ? 0.3 : 0.9;
       }
       state.lastLandmarks = landmarks;
     } else {
@@ -270,276 +246,367 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
     }
 
     if (gazeDirection !== state.lastGaze && gazeDirection !== 'unknown') {
-      state.gazeShifts += 1;
+      state.gazeShifts++;
       state.lastGaze = gazeDirection;
     }
 
-    state.blinks = state.blinks.filter((t) => now - t < 60000);
-    const windowDurationSec = (now - statsWindowStartRef.current) / 1000;
-    if (windowDurationSec > 30) {
-      statsWindowStartRef.current = now;
-      state.gazeShifts = 0;
-    }
+    state.blinks = state.blinks.filter(t => now - t < 60000);
+    const windowSec = (now - statsWindowStartRef.current) / 1000;
+    if (windowSec > 30) { statsWindowStartRef.current = now; state.gazeShifts = 0; }
 
-    const blinkRatePerMin = state.blinks.length;
-    const gazeShiftFrequency = windowDurationSec > 0 ? state.gazeShifts / Math.max(windowDurationSec, 1) : 0;
-    const behavioralTrustScore = computeTrustScore({ blinkRatePerMin, microMovementsScore, gazeShiftFrequency });
+    const blinkRatePerMin    = state.blinks.length;
+    const gazeShiftFrequency = windowSec > 0 ? state.gazeShifts / Math.max(windowSec, 1) : 0;
+    const behavioralScore    = computeTrustScore({ blinkRatePerMin, microMovementsScore, gazeShiftFrequency });
 
+    // Trigger ML analysis every 5 s
     if (now - lastAnalyzedAtRef.current > 5000 && canvasRef.current) {
       lastAnalyzedAtRef.current = now;
-      analyzeFrameWithML(canvasRef.current, meetingId, participantId).then((res) => {
+      analyzeFrameWithML(canvasRef.current, meetingId, participantId).then(res => {
         if (res) {
-          mlDataRef.current = res.mlResult;
+          mlDataRef.current       = res.mlResult;
           frameMetricsRef.current = res.frameMetrics;
+          setMlStatus(res.mlResult ? 'active' : 'no-face');
+        } else {
+          setMlStatus('no-face');
         }
-      });
+      }).catch(() => setMlStatus('offline'));
     }
 
-    let trustScore = behavioralTrustScore;
+    let trustScore = behavioralScore;
     if (mlDataRef.current) {
       const mlTrust = mlDataRef.current.probabilities.real * 100;
-      trustScore = behavioralTrustScore * 0.3 + mlTrust * 0.7;
+      trustScore    = behavioralScore * 0.3 + mlTrust * 0.7;
     }
 
     const nextStatus: DeepfakeStatus = {
       trustScore,
       isLikelyFake: trustScore < 40,
       gazeDirection,
-      blinkStats: {
-        blinkRatePerMin,
-        lastBlinkAt: state.blinks.length > 0 ? state.blinks[state.blinks.length - 1] : null,
-      },
+      blinkStats: { blinkRatePerMin, lastBlinkAt: state.blinks.at(-1) ?? null },
       behavioralSignals: { microMovementsScore, gazeShiftFrequency },
       mlResult: mlDataRef.current,
       frameMetrics: frameMetricsRef.current,
     };
 
-    setStatus((prev) => {
-      if (Math.abs(prev.trustScore - nextStatus.trustScore) > 2 || nextStatus.isLikelyFake !== prev.isLikelyFake) {
-        if (onStatusChange) onStatusChange(nextStatus);
-      }
+    setStatus(prev => {
+      if (Math.abs(prev.trustScore - nextStatus.trustScore) > 2 || nextStatus.isLikelyFake !== prev.isLikelyFake)
+        onStatusChange?.(nextStatus);
       return nextStatus;
     });
 
     maybeLogStatus(meetingId, participantId, nextStatus, nextStatus.isLikelyFake ? canvasRef.current : undefined);
   };
 
+  // History ticker
   useEffect(() => {
-    const interval = setInterval(() => {
+    const id = setInterval(() => {
       setLastUpdateTime(new Date());
-      setTrustHistory((prev) => [...prev, status.trustScore].slice(-20));
+      setTrustHistory(prev => [...prev, status.trustScore].slice(-20));
     }, 1000);
-    return () => clearInterval(interval);
+    return () => clearInterval(id);
   }, [status.trustScore]);
 
+  // ── Drag handlers ──────────────────────────────────────────────────
   const handleDragStart = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('.resize-handle')) return;
+    if ((e.target as HTMLElement).closest('button, .resize-handle')) return;
     e.preventDefault();
     setIsDragging(true);
     setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
   };
 
-  const handleResizeWidthStart = (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); setIsResizingWidth(true); };
-  const handleResizeHeightStart = (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); setIsResizingHeight(true); };
-
-  const resizeStartRef = useRef({ rightEdge: 0, bottomEdge: 0 });
+  const resizeStartRef = useRef({ rightEdge: 0 });
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const onMove = (e: MouseEvent) => {
       if (isResizingWidth && panelRef.current) {
-        if (resizeStartRef.current.rightEdge === 0)
+        if (!resizeStartRef.current.rightEdge)
           resizeStartRef.current.rightEdge = panelRef.current.getBoundingClientRect().right;
-        const newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, resizeStartRef.current.rightEdge - e.clientX));
-        setPanelWidth(newWidth);
-        setPosition((prev) => ({ ...prev, x: resizeStartRef.current.rightEdge - newWidth }));
+        const w = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, resizeStartRef.current.rightEdge - e.clientX));
+        setPanelWidth(w);
+        setPosition(prev => ({ ...prev, x: resizeStartRef.current.rightEdge - w }));
       }
       if (isResizingHeight && panelRef.current) {
-        const newHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, e.clientY - panelRef.current.getBoundingClientRect().top));
-        setPanelHeight(newHeight);
+        setPanelHeight(Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT,
+          e.clientY - panelRef.current.getBoundingClientRect().top)));
       }
       if (!isDragging) return;
-      const maxX = window.innerWidth - (panelRef.current?.offsetWidth || 256);
-      const maxY = window.innerHeight - (panelRef.current?.offsetHeight || 420);
+      const maxX = window.innerWidth  - (panelRef.current?.offsetWidth  || 260);
+      const maxY = window.innerHeight - (panelRef.current?.offsetHeight || 440);
       setPosition({
         x: Math.max(0, Math.min(e.clientX - dragStart.x, maxX)),
         y: Math.max(0, Math.min(e.clientY - dragStart.y, maxY)),
       });
     };
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      setIsResizingWidth(false);
-      setIsResizingHeight(false);
-      resizeStartRef.current = { rightEdge: 0, bottomEdge: 0 };
+    const onUp = () => {
+      setIsDragging(false); setIsResizingWidth(false); setIsResizingHeight(false);
+      resizeStartRef.current.rightEdge = 0;
+      document.body.style.cursor = ''; document.body.style.userSelect = '';
     };
     if (isDragging || isResizingWidth || isResizingHeight) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = isResizingWidth ? 'ew-resize' : isResizingHeight ? 'ns-resize' : 'grabbing';
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      document.body.style.cursor    = isResizingWidth ? 'ew-resize' : isResizingHeight ? 'ns-resize' : 'grabbing';
       document.body.style.userSelect = 'none';
     }
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
+    return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
   }, [isDragging, isResizingWidth, isResizingHeight, dragStart]);
 
-  const riskColor = status.trustScore > 75 ? 'emerald' : status.trustScore > 50 ? 'yellow' : 'red';
-  const riskBgClass = { emerald: 'bg-emerald-500', yellow: 'bg-yellow-400', red: 'bg-red-500' }[riskColor];
-  const riskTextClass = { emerald: 'text-emerald-400', yellow: 'text-yellow-400', red: 'text-red-400' }[riskColor];
-  const riskBorderClass = { emerald: 'border-emerald-500/30', yellow: 'border-yellow-500/30', red: 'border-red-500/30' }[riskColor];
+  // ── Derived colours (inline styles — never purged by Tailwind) ─────
+  const tc          = trustColor(status.trustScore);
+  const isFake      = status.isLikelyFake;
+  const moveColor   = status.behavioralSignals.microMovementsScore > 0.7 ? '#10b981'
+                    : status.behavioralSignals.microMovementsScore > 0.3 ? '#f59e0b' : '#ef4444';
+
+  const mlStatusConfig = {
+    initializing: { color: '#f59e0b', label: 'Connecting…', Icon: Activity },
+    active:        { color: '#10b981', label: 'AI Active',   Icon: Wifi     },
+    offline:       { color: '#ef4444', label: 'ML Offline',  Icon: WifiOff  },
+    'no-face':     { color: '#64748b', label: 'No face',     Icon: Eye      },
+  }[mlStatus];
 
   return (
     <>
+      {/* Collapsed show button */}
       {!isVisible && (
-        <button
-          onClick={() => setIsVisible(true)}
-          className="fixed z-40 right-4 top-20 bg-slate-900/90 text-white p-2 rounded-lg shadow-lg border border-slate-700 hover:bg-slate-800 transition-colors"
-          title="Show DeepFake Guard"
-        >
+        <button onClick={() => setIsVisible(true)}
+          className="fixed z-40 right-4 top-20 bg-surface-2/90 text-white p-2 rounded-xl
+                     shadow-lg border border-white/10 hover:bg-surface-3 transition-all">
           <ChevronUp className="w-5 h-5" />
         </button>
       )}
 
       {isVisible && (
-        <div
-          ref={panelRef}
-          className={`fixed z-40 rounded-lg bg-slate-900/80 text-white shadow-lg border border-slate-700 backdrop-blur-sm ${isDragging ? 'shadow-primary/20' : ''}`}
-          style={{ left: position.x, top: position.y, width: panelWidth, height: panelHeight }}
-        >
-          <div onMouseDown={handleDragStart} className="px-4 py-3 border-b border-slate-700 flex items-center justify-between cursor-grab active:cursor-grabbing">
-            <div className="text-sm font-semibold">DeepFake Guard</div>
+        <div ref={panelRef}
+          className={`fixed z-40 rounded-xl text-white shadow-2xl backdrop-blur-sm
+                      transition-all duration-300
+                      ${isFake
+                        ? 'border-2 border-red-500/60 bg-slate-900/90'
+                        : 'border border-slate-700/80 bg-slate-900/85'}`}
+          style={{
+            left: position.x, top: position.y,
+            width: panelWidth, height: panelHeight,
+            boxShadow: isFake ? '0 0 24px rgba(239,68,68,0.2)' : undefined,
+          }}>
+
+          {/* ── Header ───────────────────────────────────────── */}
+          <div onMouseDown={handleDragStart}
+            className="px-4 py-3 border-b border-white/8 flex items-center justify-between
+                       cursor-grab active:cursor-grabbing select-none">
             <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${status.isLikelyFake ? 'bg-red-600/80 text-white' : 'bg-emerald-600/80 text-white'}`}>
-                {status.isLikelyFake ? 'RISK' : 'STABLE'}
+              <Brain className="w-4 h-4 text-primary" />
+              <span className="text-sm font-semibold">AI Guard</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold
+                                ${isFake ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                                         : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'}`}>
+                <span className="w-1.5 h-1.5 rounded-full animate-pulse"
+                  style={{ backgroundColor: isFake ? '#ef4444' : '#10b981' }} />
+                {isFake ? 'ALERT' : 'STABLE'}
               </span>
-              <button onClick={(e) => { e.stopPropagation(); setIsVisible(false); }} className="p-1 hover:bg-slate-700 rounded transition-colors" title="Hide panel">
+              <button onClick={e => { e.stopPropagation(); setIsVisible(false); }}
+                className="p-1 hover:bg-white/8 rounded-lg transition-colors">
                 <X className="w-4 h-4 text-slate-400" />
               </button>
             </div>
           </div>
 
-          <div onMouseDown={handleResizeWidthStart} className={`resize-handle absolute left-0 top-14 bottom-0 w-3 cursor-ew-resize z-20 flex items-center justify-center group ${isResizingWidth ? 'bg-primary/20' : 'hover:bg-primary/10'}`} title="Drag to resize width">
-            <div className={`w-0.5 h-6 rounded-full transition-colors ${isResizingWidth ? 'bg-primary' : 'bg-slate-600 group-hover:bg-primary'}`} />
+          {/* ── Resize handles ───────────────────────────────── */}
+          <div onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setIsResizingWidth(true); }}
+            className="resize-handle absolute left-0 top-14 bottom-0 w-3 cursor-ew-resize z-20
+                       flex items-center justify-center group hover:bg-primary/10">
+            <div className="w-0.5 h-5 rounded-full bg-slate-600 group-hover:bg-primary transition-colors" />
+          </div>
+          <div onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setIsResizingHeight(true); }}
+            className="resize-handle absolute left-0 right-0 bottom-0 h-3 cursor-ns-resize z-20
+                       flex items-center justify-center group hover:bg-primary/10">
+            <div className="w-5 h-0.5 rounded-full bg-slate-600 group-hover:bg-primary transition-colors" />
           </div>
 
-          <div onMouseDown={handleResizeHeightStart} className={`resize-handle absolute left-0 right-0 bottom-0 h-3 cursor-ns-resize z-20 flex items-center justify-center group ${isResizingHeight ? 'bg-primary/20' : 'hover:bg-primary/10'}`} title="Drag to resize height">
-            <div className={`w-6 h-0.5 rounded-full transition-colors ${isResizingHeight ? 'bg-primary' : 'bg-slate-600 group-hover:bg-primary'}`} />
-          </div>
+          {/* ── Body ─────────────────────────────────────────── */}
+          <div className="px-4 py-3 space-y-3 overflow-y-auto" style={{ height: 'calc(100% - 56px)' }}>
 
-          <div className="px-4 py-3 space-y-3 overflow-y-auto" style={{ height: 'calc(100% - 60px)' }}>
+            {/* Timestamp + participants */}
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className={`w-4 h-4 ${riskTextClass} animate-pulse`} />
-                <span className="text-xs text-slate-400">Live Analysis</span>
+              <div className="flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-slate-400" />
+                <span className="text-xs text-slate-400">{totalParticipants} participant{totalParticipants !== 1 ? 's' : ''}</span>
               </div>
               <span className="text-[10px] text-slate-500">{lastUpdateTime.toLocaleTimeString()}</span>
             </div>
 
-            <div className="flex items-center gap-2 bg-slate-800/50 rounded-lg px-3 py-2">
-              <Users className="w-4 h-4 text-slate-400" />
-              <span className="text-xs text-slate-300">Participants:</span>
-              <span className="text-sm font-semibold text-white">{totalParticipants}</span>
-              <span className="text-[10px] text-slate-500">(You + {remoteParticipants.length} remote)</span>
-            </div>
-
-            <div className={`p-3 rounded-lg border ${riskBorderClass} bg-slate-800/30`}>
+            {/* ── Trust score ──────────────────────────────── */}
+            <div className="p-3 rounded-xl border bg-slate-800/40"
+              style={{ borderColor: tc + '40' }}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <Shield className={`w-4 h-4 ${riskTextClass}`} />
+                  <Shield className="w-4 h-4" style={{ color: tc }} />
                   <span className="text-xs text-slate-300">Trust Score</span>
                 </div>
-                <span className={`text-lg font-bold ${riskTextClass}`}>{Math.round(status.trustScore)}%</span>
+                <span className="text-xl font-bold" style={{ color: tc }}>
+                  {Math.round(status.trustScore)}%
+                </span>
               </div>
-              <div className="flex items-end gap-0.5 h-8 mb-2">
+              {/* Mini bar chart */}
+              <div className="flex items-end gap-0.5 h-7 mb-2">
                 {trustHistory.map((val, i) => (
-                  <div key={i} className={`flex-1 ${riskBgClass} rounded-t-sm transition-all duration-300`} style={{ height: `${val}%`, opacity: 0.3 + (i / trustHistory.length) * 0.7 }} />
+                  <div key={i} className="flex-1 rounded-t-sm transition-all duration-300"
+                    style={{
+                      height: `${val}%`,
+                      backgroundColor: trustColor(val),
+                      opacity: 0.25 + (i / trustHistory.length) * 0.75,
+                    }} />
                 ))}
               </div>
+              {/* Progress bar */}
               <div className="h-2 w-full rounded-full bg-slate-700 overflow-hidden">
-                <div className={`h-full ${riskBgClass} transition-all duration-500`} style={{ width: `${Math.max(0, Math.min(100, status.trustScore))}%` }} />
+                <div className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${Math.max(0, Math.min(100, status.trustScore))}%`, backgroundColor: tc }} />
               </div>
             </div>
 
-            {status.mlResult ? (
-              <div className="p-3 rounded-lg border border-primary/30 bg-primary/5">
-                <div className="flex items-center gap-2 mb-2">
+            {/* ── ML service status ─────────────────────────── */}
+            <div className="p-3 rounded-xl border border-primary/20 bg-primary/5">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
                   <Zap className="w-4 h-4 text-primary" />
-                  <span className="text-[10px] text-slate-400 font-mono uppercase">ZPPM AI MODEL</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className={`text-sm font-bold ${status.mlResult.label.toLowerCase() === 'real' ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {status.mlResult.label.toUpperCase()}
+                  <span className="text-[10px] text-slate-400 font-mono uppercase tracking-wide">
+                    SecureMeet AI Model
                   </span>
-                  <span className="text-xs text-slate-400">{(status.mlResult.score * 100).toFixed(0)}% confidence</span>
                 </div>
-                <div className="flex gap-2 mt-2 text-[10px]">
-                  <span className="text-emerald-400">Real: {(status.mlResult.probabilities.real * 100).toFixed(0)}%</span>
-                  <span className="text-slate-600">|</span>
-                  <span className="text-red-400">Fake: {(status.mlResult.probabilities.fake * 100).toFixed(0)}%</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full"
+                    style={{ backgroundColor: mlStatusConfig.color,
+                             animation: mlStatus !== 'offline' ? 'pulse 2s infinite' : 'none' }} />
+                  <span className="text-[10px] font-medium" style={{ color: mlStatusConfig.color }}>
+                    {mlStatusConfig.label}
+                  </span>
                 </div>
               </div>
-            ) : (
-              <div className="flex items-center gap-2 text-slate-500">
-                <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-                <span className="text-xs">Initializing AI model...</span>
-              </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-slate-800/50 rounded-lg p-2">
-                <div className="flex items-center gap-1.5 mb-1"><Eye className="w-3 h-3 text-slate-400" /><span className="text-[10px] text-slate-400">Gaze</span></div>
-                <div className="text-sm font-medium text-white capitalize">{status.gazeDirection}</div>
-              </div>
-              <div className="bg-slate-800/50 rounded-lg p-2">
-                <div className="flex items-center gap-1.5 mb-1"><Timer className="w-3 h-3 text-slate-400" /><span className="text-[10px] text-slate-400">Blink Rate</span></div>
-                <div className="text-sm font-medium text-white">{status.blinkStats.blinkRatePerMin} <span className="text-[10px] text-slate-500">/min</span></div>
-              </div>
-              <div className="bg-slate-800/50 rounded-lg p-2">
-                <div className="text-[10px] text-slate-400 mb-1">EAR Ratio</div>
-                <div className="text-sm font-medium text-white">{status.frameMetrics?.ear?.toFixed(3) || '---'}</div>
-              </div>
-              <div className="bg-slate-800/50 rounded-lg p-2">
-                <div className="text-[10px] text-slate-400 mb-1">ML Frames</div>
-                <div className="text-sm font-medium text-white">{status.mlResult?.frameCount || 0}</div>
-              </div>
+              {status.mlResult ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm font-bold ${
+                      status.mlResult.label.toLowerCase() === 'real' ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {status.mlResult.label.toUpperCase()}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {(status.mlResult.score * 100).toFixed(0)}% confidence
+                    </span>
+                  </div>
+                  {/* Real / Fake probability bars */}
+                  <div className="mt-2 space-y-1">
+                    {[
+                      { label: 'Real', val: status.mlResult.probabilities.real, color: '#10b981' },
+                      { label: 'Fake', val: status.mlResult.probabilities.fake, color: '#ef4444' },
+                    ].map(({ label, val, color }) => (
+                      <div key={label} className="flex items-center gap-2">
+                        <span className="text-[10px] w-6 text-slate-500">{label}</span>
+                        <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${val * 100}%`, backgroundColor: color }} />
+                        </div>
+                        <span className="text-[10px] w-6 text-right" style={{ color }}>
+                          {(val * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1.5">
+                    {status.mlResult.frameCount} frames analyzed
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center gap-2 mt-1">
+                  {mlStatus === 'initializing' && (
+                    <span className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin flex-shrink-0" />
+                  )}
+                  <span className="text-xs text-slate-500">
+                    {mlStatus === 'offline'  ? 'ML service offline — behavioral analysis only'
+                     : mlStatus === 'no-face' ? 'No face detected in frame'
+                     : 'Collecting frames for analysis…'}
+                  </span>
+                </div>
+              )}
             </div>
 
+            {/* ── Behavioral metrics ────────────────────────── */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { Icon: Eye,      label: 'Gaze',       value: status.gazeDirection,                             unit: '' },
+                { Icon: Timer,    label: 'Blink Rate',  value: status.blinkStats.blinkRatePerMin.toString(),    unit: '/min' },
+                { Icon: Activity, label: 'EAR',         value: status.frameMetrics?.ear?.toFixed(3) ?? '—',    unit: '' },
+                { Icon: Zap,      label: 'ML Frames',   value: (status.mlResult?.frameCount ?? 0).toString(),  unit: '' },
+              ].map(({ Icon, label, value, unit }) => (
+                <div key={label} className="bg-slate-800/50 rounded-lg p-2">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Icon className="w-3 h-3 text-slate-400" />
+                    <span className="text-[10px] text-slate-400">{label}</span>
+                  </div>
+                  <span className="text-sm font-semibold text-white capitalize">{value}</span>
+                  {unit && <span className="text-[10px] text-slate-500 ml-0.5">{unit}</span>}
+                </div>
+              ))}
+            </div>
+
+            {/* Micro movements bar */}
             <div className="bg-slate-800/50 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-slate-300">Micro Movements</span>
-                <span className={`text-xs font-medium ${status.behavioralSignals.microMovementsScore > 0.7 ? 'text-emerald-400' : status.behavioralSignals.microMovementsScore > 0.3 ? 'text-yellow-400' : 'text-red-400'}`}>
+                <span className="text-xs text-slate-300">Micro-movements</span>
+                <span className="text-xs font-semibold" style={{ color: moveColor }}>
                   {(status.behavioralSignals.microMovementsScore * 100).toFixed(0)}%
                 </span>
               </div>
               <div className="h-1.5 w-full rounded-full bg-slate-700 overflow-hidden">
-                <div className={`h-full transition-all duration-500 ${status.behavioralSignals.microMovementsScore > 0.7 ? 'bg-emerald-500' : status.behavioralSignals.microMovementsScore > 0.3 ? 'bg-yellow-400' : 'bg-red-500'}`} style={{ width: `${status.behavioralSignals.microMovementsScore * 100}%` }} />
+                <div className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${status.behavioralSignals.microMovementsScore * 100}%`, backgroundColor: moveColor }} />
               </div>
             </div>
 
-            {status.isLikelyFake && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+            {/* ── Deepfake alert ────────────────────────────── */}
+            {isFake && (
+              <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30
+                              animate-pulse-ring">
                 <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <div className="text-xs font-medium text-red-400">DeepFake Detected</div>
-                  <div className="text-[10px] text-red-300/80 mt-0.5">Suspicious patterns detected in video feed</div>
+                  <div className="text-xs font-semibold text-red-400">Deepfake Detected</div>
+                  <div className="text-[10px] text-red-300/70 mt-0.5">
+                    Suspicious patterns in video feed. Trust score below 40%.
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* FIX: display actual fields ml_service.py returns */}
+            {/* ── Technical details (collapsed by default) ─── */}
             {status.mlResult?.features && (
-              <div className="border-t border-slate-700/50 pt-2">
-                <div className="text-[10px] text-slate-400 font-mono uppercase mb-2">ML Features</div>
-                <div className="grid grid-cols-2 gap-1 text-[10px]">
-                  <div className="flex justify-between"><span className="text-slate-500">Blinks:</span><span className="text-slate-300">{status.mlResult.features.total_blinks}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Rate:</span><span className="text-slate-300">{status.mlResult.features.blink_rate.toFixed(1)}/min</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Yaw Var:</span><span className="text-slate-300">{status.mlResult.features.yaw_variance.toFixed(2)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">CNN Score:</span><span className="text-slate-300">{(status.mlResult.features.cnn_score * 100).toFixed(0)}%</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Interval CV:</span><span className="text-slate-300">{status.mlResult.features.interval_cv.toFixed(3)}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-500">Roll Var:</span><span className="text-slate-300">{status.mlResult.features.roll_variance.toFixed(2)}</span></div>
-                </div>
+              <div>
+                <button onClick={() => setShowTechDetails(!showTechDetails)}
+                  className="flex items-center gap-1.5 text-[10px] text-slate-500 hover:text-slate-300
+                             transition-colors w-full mt-1">
+                  <ChevronDown className={`w-3 h-3 transition-transform ${showTechDetails ? 'rotate-180' : ''}`} />
+                  {showTechDetails ? 'Hide' : 'Show'} technical details
+                </button>
+                {showTechDetails && (
+                  <div className="mt-2 border-t border-slate-700/50 pt-2 animate-in">
+                    <div className="text-[10px] text-slate-400 font-mono uppercase mb-2">ML Feature Vector</div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                      {[
+                        ['Blinks', status.mlResult.features.total_blinks],
+                        ['Rate',   status.mlResult.features.blink_rate.toFixed(1) + '/min'],
+                        ['Yaw Var',status.mlResult.features.yaw_variance.toFixed(2)],
+                        ['CNN Score',(status.mlResult.features.cnn_score * 100).toFixed(0) + '%'],
+                        ['Interval CV',status.mlResult.features.interval_cv.toFixed(3)],
+                        ['Roll Var',status.mlResult.features.roll_variance.toFixed(2)],
+                      ].map(([k, v]) => (
+                        <div key={k as string} className="flex justify-between">
+                          <span className="text-slate-500">{k}:</span>
+                          <span className="text-slate-300 font-mono">{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -551,34 +618,27 @@ const DeepfakeMonitor: React.FC<DeepfakeMonitorProps> = ({
   );
 };
 
-// FIX: reads correct fields from server response — data.label, data.probabilities (top-level)
-// server now also sends data.prediction for nested access
+// ── ML API call ────────────────────────────────────────────────────────
 export async function analyzeFrameWithML(
   canvas: HTMLCanvasElement,
   meetingId?: string,
-  participantId?: string
+  participantId?: string,
 ): Promise<{ mlResult: DeepfakeStatus['mlResult']; frameMetrics: DeepfakeStatus['frameMetrics'] } | undefined> {
   try {
     const imageBase64 = canvas.toDataURL('image/jpeg', 0.8);
-    const { data } = await api.post('/deepfake/analyze', { imageBase64, meetingId, participantId });
-
+    const { data }    = await api.post('/deepfake/analyze', { imageBase64, meetingId, participantId });
     if (!data.faceDetected) return undefined;
-
-    // Use top-level fields (server guarantees these are always present)
     return {
-      mlResult: data.label
-        ? {
-            label: data.label,
-            score: data.score ?? 0,
-            probabilities: data.probabilities ?? { real: 0.5, fake: 0.5 },
-            features: data.mlModel?.features ?? undefined,
-            frameCount: data.mlModel?.frameCount ?? 0,
-          }
-        : undefined,
+      mlResult: data.label ? {
+        label:         data.label,
+        score:         data.score ?? 0,
+        probabilities: data.probabilities ?? { real: 0.5, fake: 0.5 },
+        features:      data.mlModel?.features ?? undefined,
+        frameCount:    data.mlModel?.frameCount ?? 0,
+      } : undefined,
       frameMetrics: data.frameMetrics ?? undefined,
     };
-  } catch (err) {
-    console.warn('ML Analysis error', err);
+  } catch {
     return undefined;
   }
 }
@@ -587,46 +647,42 @@ async function maybeLogStatus(
   meetingId: string | undefined,
   participantId: string | undefined,
   status: DeepfakeStatus,
-  evidenceCanvas?: HTMLCanvasElement | null
+  evidenceCanvas?: HTMLCanvasElement | null,
 ) {
   if (!meetingId) return;
   const now = performance.now();
   if ((window as any).__deepfake_lastSentLogAt && now - (window as any).__deepfake_lastSentLogAt < 5000) return;
   (window as any).__deepfake_lastSentLogAt = now;
-
-  const snapshotJpegDataUrl = status.isLikelyFake && evidenceCanvas ? maybeCaptureEvidenceSnapshot(evidenceCanvas) : undefined;
-
+  const snapshotJpegDataUrl = status.isLikelyFake && evidenceCanvas
+    ? maybeCaptureEvidenceSnapshot(evidenceCanvas) : undefined;
   try {
     await api.post('/deepfake/log', {
       meetingId,
-      participantId: participantId || 'unknown',
-      trustScore: status.trustScore,
-      isLikelyFake: status.isLikelyFake,
-      gazeDirection: status.gazeDirection,
-      blinkRatePerMin: status.blinkStats.blinkRatePerMin,
-      microMovementsScore: status.behavioralSignals.microMovementsScore,
+      participantId:      participantId || 'unknown',
+      trustScore:         status.trustScore,
+      isLikelyFake:       status.isLikelyFake,
+      gazeDirection:      status.gazeDirection,
+      blinkRatePerMin:    status.blinkStats.blinkRatePerMin,
+      microMovementsScore:status.behavioralSignals.microMovementsScore,
       gazeShiftFrequency: status.behavioralSignals.gazeShiftFrequency,
       snapshotJpegDataUrl,
-      mlLabel: status.mlResult?.label,
-      mlConfidence: status.mlResult?.score,
+      mlLabel:         status.mlResult?.label,
+      mlConfidence:    status.mlResult?.score,
       mlProbabilities: status.mlResult?.probabilities,
-      mlFeatures: status.mlResult?.features,
-      frameMetrics: status.frameMetrics,
+      mlFeatures:      status.mlResult?.features,
+      frameMetrics:    status.frameMetrics,
     });
-  } catch (err) {
-    console.warn('Deepfake log error', err);
-  }
+  } catch { /* silent */ }
 }
 
 function maybeCaptureEvidenceSnapshot(canvas: HTMLCanvasElement): string | undefined {
   const targetW = 320;
-  const scale = canvas.width ? targetW / canvas.width : 1;
+  const scale   = canvas.width ? targetW / canvas.width : 1;
   if (!Number.isFinite(scale) || scale <= 0) return undefined;
-  const targetH = Math.max(1, Math.round(canvas.height * scale));
   const tmp = document.createElement('canvas');
-  tmp.width = targetW;
-  tmp.height = targetH;
-  const ctx = tmp.getContext('2d');
+  tmp.width  = targetW;
+  tmp.height = Math.max(1, Math.round(canvas.height * scale));
+  const ctx  = tmp.getContext('2d');
   if (!ctx) return undefined;
   ctx.drawImage(canvas, 0, 0, tmp.width, tmp.height);
   try { return tmp.toDataURL('image/jpeg', 0.6); } catch { return undefined; }
