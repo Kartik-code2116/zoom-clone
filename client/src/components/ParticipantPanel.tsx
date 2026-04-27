@@ -1,30 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useRemoteParticipants, useLocalParticipant } from '@livekit/components-react';
-import { Track } from 'livekit-client';
-import { Users, Mic, MicOff, Video, VideoOff, X, Pin, Ghost } from 'lucide-react';
+import { useRemoteParticipants, useLocalParticipant, useRoomContext } from '@livekit/components-react';
+import { Track, DataPacket_Kind } from 'livekit-client';
+import { Users, Mic, MicOff, Video, VideoOff, X, Pin, Ghost, Hand, UserMinus, ShieldOff, Lock, Unlock } from 'lucide-react';
 
 interface ParticipantPanelProps {
   isOpen: boolean;
   onClose: () => void;
   width?: number;
   onWidthChange?: (width: number) => void;
+  raisedHands?: Set<string>;
+  isMeetingLocked?: boolean;
+  onLockMeeting?: () => void;
 }
 
 const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
   isOpen, onClose, width = 320, onWidthChange,
+  raisedHands = new Set(), isMeetingLocked = false, onLockMeeting,
 }) => {
   const remoteParticipants = useRemoteParticipants();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
+  const room    = useRoomContext();
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const [position, setPosition]               = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging]           = useState(false);
-  const [dragStart, setDragStart]             = useState({ x: 0, y: 0 });
+  const [position,          setPosition]          = useState({ x: 0, y: 0 });
+  const [isDragging,        setIsDragging]        = useState(false);
+  const [dragStart,         setDragStart]         = useState({ x: 0, y: 0 });
   const [isDefaultPosition, setIsDefaultPosition] = useState(true);
-  const [panelWidth, setPanelWidth]           = useState(width);
-  const [panelHeight, setPanelHeight]         = useState(500);
-  const [isResizingWidth, setIsResizingWidth] = useState(false);
-  const [isResizingHeight, setIsResizingHeight] = useState(false);
+  const [panelWidth,        setPanelWidth]        = useState(width);
+  const [panelHeight,       setPanelHeight]       = useState(500);
+  const [isResizingWidth,   setIsResizingWidth]   = useState(false);
+  const [isResizingHeight,  setIsResizingHeight]  = useState(false);
 
   const MIN_WIDTH = 280; const MAX_WIDTH  = 600;
   const MIN_HEIGHT= 300; const MAX_HEIGHT = 800;
@@ -36,6 +41,25 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
   const isMicOn  = (p: any) => { const pub = p.getTrackPublication(Track.Source.Microphone); return !!pub && !pub.isMuted; };
   const isCamOn  = (p: any) => { const pub = p.getTrackPublication(Track.Source.Camera);    return !!pub && !pub.isMuted; };
   const isHost   = (p: any) => { try { return !!JSON.parse(p.metadata || '{}').isHost; } catch { return false; } };
+
+  const isLocalHost = isHost(localParticipant);
+
+  // Send a data message to control a remote participant
+  const sendHostCommand = (command: string, targetIdentity: string) => {
+    try {
+      const encoder = new TextEncoder();
+      const data    = encoder.encode(JSON.stringify({ type: 'HOST_CMD', command, target: targetIdentity }));
+      room.localParticipant.publishData(data, { reliable: true });
+    } catch { /* silent */ }
+  };
+
+  const handleMuteAll = () => {
+    remoteParticipants.forEach(p => sendHostCommand('MUTE', p.identity));
+  };
+
+  const handleRemoveParticipant = (identity: string) => {
+    sendHostCommand('REMOVE', identity);
+  };
 
   const handleDragStart = (e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest('button')) return;
@@ -70,15 +94,13 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
     if (isDragging || isResizingWidth || isResizingHeight) {
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
-      document.body.style.cursor    = isResizingWidth ? 'ew-resize' : isResizingHeight ? 'ns-resize' : 'grabbing';
+      document.body.style.cursor     = isResizingWidth ? 'ew-resize' : isResizingHeight ? 'ns-resize' : 'grabbing';
       document.body.style.userSelect = 'none';
     }
     return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
   }, [isDragging, isResizingWidth, isResizingHeight, dragStart, isDefaultPosition, onWidthChange]);
 
   if (!isOpen) return null;
-
-  const isLocalHost = isHost(localParticipant);
 
   return (
     <div ref={panelRef}
@@ -95,7 +117,7 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
         <div className={`w-1 h-8 rounded-full transition-colors ${isResizingWidth ? 'bg-primary' : 'bg-slate-600 group-hover:bg-primary'}`} />
       </div>
 
-      {/* Resize — bottom edge (floating only) */}
+      {/* Resize — bottom edge (floating) */}
       {!isDefaultPosition && (
         <div onMouseDown={e => { e.preventDefault(); e.stopPropagation(); setIsResizingHeight(true); }}
           className={`absolute left-0 right-0 bottom-0 h-4 cursor-ns-resize z-20 flex items-center justify-center group
@@ -104,11 +126,10 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
         </div>
       )}
 
-      {/* Drag handle (floating only) */}
+      {/* Drag handle */}
       {!isDefaultPosition && (
         <div onMouseDown={handleDragStart}
-          className="w-full h-4 cursor-grab active:cursor-grabbing flex items-center justify-center
-                     bg-surface-2 border-b border-white/8">
+          className="w-full h-4 cursor-grab active:cursor-grabbing flex items-center justify-center bg-surface-2 border-b border-white/8">
           <div className="w-8 h-1 bg-slate-600 rounded-full" />
         </div>
       )}
@@ -123,26 +144,49 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
         <div className="flex items-center gap-1">
           {!isDefaultPosition && (
             <button onClick={() => { setPosition({ x: 0, y: 0 }); setIsDefaultPosition(true); }}
-              className="text-white/50 hover:text-white hover:bg-white/8 w-8 h-8 rounded-lg
-                         flex items-center justify-center transition-all" title="Pin to side">
+              className="text-white/50 hover:text-white hover:bg-white/8 w-8 h-8 rounded-lg flex items-center justify-center transition-all" title="Pin to side">
               <Pin className="w-4 h-4" />
             </button>
           )}
           <button onClick={onClose}
-            className="text-white/50 hover:text-white hover:bg-white/8 w-8 h-8 rounded-lg
-                       flex items-center justify-center transition-all">
+            className="text-white/50 hover:text-white hover:bg-white/8 w-8 h-8 rounded-lg flex items-center justify-center transition-all">
             <X className="w-4 h-4" />
           </button>
         </div>
       </div>
 
-      {/* List */}
+      {/* Host Controls Bar */}
+      {isLocalHost && (
+        <div className="px-3 py-2.5 border-b border-white/8 bg-yellow-500/5">
+          <p className="text-xs text-yellow-400/70 font-semibold uppercase tracking-wider mb-2">Host Controls</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handleMuteAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white/8 hover:bg-white/12 text-white/70 hover:text-white
+                         text-xs rounded-lg border border-white/10 transition-all"
+            >
+              <MicOff className="w-3.5 h-3.5" /> Mute All
+            </button>
+            <button
+              onClick={onLockMeeting}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-all
+                          ${isMeetingLocked
+                            ? 'bg-yellow-500/20 border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/30'
+                            : 'bg-white/8 hover:bg-white/12 text-white/70 hover:text-white border-white/10'}`}
+            >
+              {isMeetingLocked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+              {isMeetingLocked ? 'Unlock' : 'Lock Meeting'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Participant list */}
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
 
         {/* Local (You) */}
         <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-primary/5 border border-primary/10">
-          <div className="w-9 h-9 rounded-full bg-primary/20 border border-primary/30
-                          flex items-center justify-center flex-shrink-0">
+          <div className="w-9 h-9 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center flex-shrink-0">
             <span className="text-primary text-xs font-bold uppercase">
               {localParticipant.name?.charAt(0) || localParticipant.identity?.charAt(0) || 'Y'}
             </span>
@@ -153,17 +197,15 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
               <span className="text-primary/60 text-xs ml-1.5">(You)</span>
             </p>
             {isLocalHost && (
-              <span className="inline-block text-[10px] bg-primary/15 text-primary
-                               px-1.5 py-0.5 rounded-md font-medium mt-0.5">Host</span>
+              <span className="inline-block text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-md font-medium mt-0.5">Host</span>
             )}
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            {isMicrophoneEnabled
-              ? <Mic className="w-4 h-4 text-white/40" />
-              : <MicOff className="w-4 h-4 text-red-400" />}
-            {isCameraEnabled
-              ? <Video className="w-4 h-4 text-white/40" />
-              : <VideoOff className="w-4 h-4 text-red-400" />}
+            {raisedHands.has(localParticipant.identity) && (
+              <Hand className="w-3.5 h-3.5 text-yellow-400 animate-bounce" />
+            )}
+            {isMicrophoneEnabled ? <Mic className="w-4 h-4 text-white/40" /> : <MicOff className="w-4 h-4 text-red-400" />}
+            {isCameraEnabled     ? <Video className="w-4 h-4 text-white/40" /> : <VideoOff className="w-4 h-4 text-red-400" />}
           </div>
         </div>
 
@@ -172,11 +214,13 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
           const micOn = isMicOn(participant);
           const camOn = isCamOn(participant);
           const host  = isHost(participant);
+          const handRaised = raisedHands.has(participant.identity);
           return (
             <div key={participant.sid}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors">
-              <div className="w-9 h-9 rounded-full bg-white/10 border border-white/10
-                              flex items-center justify-center flex-shrink-0">
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors group
+                          ${handRaised ? 'bg-yellow-500/10 border border-yellow-500/20' : 'hover:bg-white/5'}`}>
+              <div className={`w-9 h-9 rounded-full border flex items-center justify-center flex-shrink-0
+                              ${handRaised ? 'bg-yellow-500/20 border-yellow-500/30' : 'bg-white/10 border-white/10'}`}>
                 <span className="text-white/70 text-xs font-bold uppercase">
                   {participant.name?.charAt(0) || participant.identity?.charAt(0) || '?'}
                 </span>
@@ -186,13 +230,23 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
                   {participant.name || participant.identity || 'Participant'}
                 </p>
                 {host && (
-                  <span className="inline-block text-[10px] bg-primary/15 text-primary
-                                   px-1.5 py-0.5 rounded-md font-medium mt-0.5">Host</span>
+                  <span className="inline-block text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-md font-medium mt-0.5">Host</span>
                 )}
               </div>
               <div className="flex items-center gap-1.5 flex-shrink-0">
+                {handRaised && <Hand className="w-3.5 h-3.5 text-yellow-400 animate-bounce" />}
                 {micOn ? <Mic className="w-4 h-4 text-white/40" /> : <MicOff className="w-4 h-4 text-red-400" />}
                 {camOn ? <Video className="w-4 h-4 text-white/40" /> : <VideoOff className="w-4 h-4 text-red-400" />}
+                {/* Host-only remove button */}
+                {isLocalHost && !host && (
+                  <button
+                    onClick={() => handleRemoveParticipant(participant.identity)}
+                    title="Remove from meeting"
+                    className="opacity-0 group-hover:opacity-100 ml-1 text-white/30 hover:text-red-400 transition-all p-1 rounded-lg hover:bg-red-400/10"
+                  >
+                    <UserMinus className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -206,6 +260,14 @@ const ParticipantPanel: React.FC<ParticipantPanelProps> = ({
           </div>
         )}
       </div>
+
+      {/* Meeting locked indicator */}
+      {isMeetingLocked && (
+        <div className="px-4 py-2.5 border-t border-yellow-500/20 bg-yellow-500/10 flex items-center gap-2 flex-shrink-0">
+          <Lock className="w-3.5 h-3.5 text-yellow-400" />
+          <span className="text-yellow-400 text-xs font-medium">Meeting is locked — no new joins</span>
+        </div>
+      )}
     </div>
   );
 };

@@ -15,10 +15,16 @@ import {
   Settings,
   PhoneOff,
   ChevronDown,
-  ChevronUp,
   Camera,
   Theater,
   MoreHorizontal,
+  Hand,
+  Subtitles,
+  LayoutGrid,
+  Lock,
+  Unlock,
+  ClipboardList,
+  PenLine,
 } from 'lucide-react';
 
 interface MeetingToolbarProps {
@@ -34,7 +40,22 @@ interface MeetingToolbarProps {
   chatPanelWidth?: number;
   participantPanelWidth?: number;
   onToggleFraudDashboard?: () => void;
-  deepfakeAlert?: boolean;   // NEW — shows red badge on Guard button
+  deepfakeAlert?: boolean;
+  // New features
+  isHandRaised?: boolean;
+  onToggleHand?: () => void;
+  captionsOn?: boolean;
+  onToggleCaptions?: () => void;
+  onToggleLayout?: () => void;
+  currentLayout?: string;
+  isHost?: boolean;
+  onMuteAll?: () => void;
+  onLockMeeting?: () => void;
+  isMeetingLocked?: boolean;
+  pollsOpen?: boolean;
+  onTogglePolls?: () => void;
+  whiteboardOpen?: boolean;
+  onToggleWhiteboard?: () => void;
 }
 
 const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
@@ -51,13 +72,26 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
   participantPanelWidth = 320,
   onToggleFraudDashboard,
   deepfakeAlert = false,
+  isHandRaised = false,
+  onToggleHand,
+  captionsOn = false,
+  onToggleCaptions,
+  onToggleLayout,
+  currentLayout = 'grid',
+  isHost = false,
+  onMuteAll,
+  onLockMeeting,
+  isMeetingLocked = false,
+  pollsOpen = false,
+  onTogglePolls,
+  whiteboardOpen = false,
+  onToggleWhiteboard,
 }) => {
   const navigate      = useNavigate();
   const { meetingId } = useParams<{ meetingId: string }>();
   const room          = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
 
-  // Camera device state
   const [videoDevices,     setVideoDevices]     = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [isDeviceMenuOpen, setIsDeviceMenuOpen] = useState(false);
@@ -65,17 +99,16 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
   const deviceMenuRef = useRef<HTMLDivElement>(null);
   const moreMenuRef   = useRef<HTMLDivElement>(null);
 
-  // Draggable state
-  const toolbarRef        = useRef<HTMLDivElement>(null);
-  const [position,        setPosition]        = useState({ x: 0, y: 0 });
-  const [isDragging,      setIsDragging]      = useState(false);
-  const [dragStart,       setDragStart]       = useState({ x: 0, y: 0 });
+  const toolbarRef          = useRef<HTMLDivElement>(null);
+  const [position,          setPosition]          = useState({ x: 0, y: 0 });
+  const [isDragging,        setIsDragging]        = useState(false);
+  const [dragStart,         setDragStart]         = useState({ x: 0, y: 0 });
   const [isDefaultPosition, setIsDefaultPosition] = useState(true);
 
   // ── Device enumeration ─────────────────────────────────────────────
   const getVideoDevices = useCallback(async () => {
     try {
-      const devices    = await navigator.mediaDevices.enumerateDevices();
+      const devices     = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter(d => d.kind === 'videoinput');
       setVideoDevices(videoInputs);
       const videoTrack = localParticipant.videoTrackPublications.values().next().value?.track;
@@ -115,8 +148,8 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
         return;
       }
       const videoTrack = videoPub.track as any;
-      if      (videoTrack?.switchDevice)   { await videoTrack.switchDevice(deviceId); }
-      else if (videoTrack?.restartTrack)   { await videoTrack.restartTrack({ deviceId }); }
+      if      (videoTrack?.switchDevice) { await videoTrack.switchDevice(deviceId); }
+      else if (videoTrack?.restartTrack) { await videoTrack.restartTrack({ deviceId }); }
       else {
         await localParticipant.setCameraEnabled(false);
         await new Promise(r => setTimeout(r, 500));
@@ -158,12 +191,12 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
     const onUp = () => { setIsDragging(false); document.body.style.cursor = ''; };
     if (isDragging) {
       document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      document.addEventListener('mouseup',   onUp);
       document.body.style.cursor = 'grabbing';
     }
     return () => {
       document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('mouseup',   onUp);
     };
   }, [isDragging, dragStart]);
 
@@ -214,12 +247,13 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (e.key.toLowerCase() === 'm') toggleMic();
       if (e.key.toLowerCase() === 'v') toggleCamera();
+      if (e.key.toLowerCase() === 'h') onToggleHand?.();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [toggleMic, toggleCamera]);
+  }, [toggleMic, toggleCamera, onToggleHand]);
 
-  // ── Button helpers ─────────────────────────────────────────────────
+  // ── Button style helpers ───────────────────────────────────────────
   const mediaBtn = (active: boolean) =>
     `relative flex flex-col items-center gap-1 px-3.5 py-2.5 rounded-xl
      transition-all duration-200 select-none cursor-pointer
@@ -243,6 +277,8 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
     <span className="text-[10px] font-medium leading-none">{text}</span>
   );
 
+  const layoutLabel = currentLayout === 'grid' ? 'Spotlight' : currentLayout === 'spotlight' ? 'Sidebar' : 'Grid';
+
   return (
     <div
       ref={toolbarRef}
@@ -254,7 +290,7 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
         ? { right: getRightMargin(), transition: 'right 0.3s ease-out' }
         : { left: position.x, top: position.y, right: 'auto', bottom: 'auto' }}
     >
-      {/* Drag handle (only when floating) */}
+      {/* Drag handle (floating) */}
       {!isDefaultPosition && (
         <div onMouseDown={handleDragStart}
           className="w-full h-3 flex items-center justify-center cursor-grab active:cursor-grabbing">
@@ -268,7 +304,7 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
         {/* ── Mic ─────────────────────────────────────────────── */}
         <button onClick={toggleMic} className={mediaBtn(isMicrophoneEnabled)} title="Toggle Mic (M)">
           {isMicrophoneEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-          {label(isMicrophoneEnabled ? 'Mute' : 'Unmuted')}
+          {label(isMicrophoneEnabled ? 'Mute' : 'Unmute')}
         </button>
 
         {/* ── Camera + device picker ─────────────────────────── */}
@@ -319,13 +355,30 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
 
         <div className="w-px h-9 bg-white/10 mx-0.5" />
 
+        {/* ── Raise Hand ───────────────────────────────────────── */}
+        <button
+          onClick={onToggleHand}
+          title={isHandRaised ? 'Lower Hand (H)' : 'Raise Hand (H)'}
+          className={isHandRaised
+            ? 'flex flex-col items-center gap-1 px-3.5 py-2.5 rounded-xl bg-yellow-500/20 border border-yellow-500/40 text-yellow-400 transition-all duration-200 select-none cursor-pointer animate-pulse'
+            : actionBtn}
+        >
+          <Hand className="w-5 h-5" />
+          {label(isHandRaised ? 'Lower' : 'Raise Hand')}
+        </button>
+
+        {/* ── Reactions ────────────────────────────────────────── */}
+        <button onClick={onToggleReactions} className={actionBtn} title="Reactions">
+          <Smile className="w-5 h-5" />
+          {label('React')}
+        </button>
+
         {/* ── Chat ─────────────────────────────────────────────── */}
         <button onClick={onToggleChat} className={panelBtn(chatOpen)} title="Chat">
           <MessageSquare className="w-5 h-5" />
           {label('Chat')}
           {isChatUnread && !chatOpen && (
-            <span className="absolute top-1.5 right-2.5 w-2 h-2 bg-primary rounded-full animate-pulse
-                             ring-2 ring-surface" />
+            <span className="absolute top-1.5 right-2.5 w-2 h-2 bg-primary rounded-full animate-pulse ring-2 ring-surface" />
           )}
         </button>
 
@@ -335,10 +388,32 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
           {label('People')}
         </button>
 
-        {/* ── Reactions ────────────────────────────────────────── */}
-        <button onClick={onToggleReactions} className={actionBtn} title="Reactions">
-          <Smile className="w-5 h-5" />
-          {label('React')}
+        {/* ── Captions ─────────────────────────────────────────── */}
+        <button
+          onClick={onToggleCaptions}
+          title={captionsOn ? 'Turn off captions' : 'Live captions'}
+          className={captionsOn ? panelBtn(true) : actionBtn}
+        >
+          <Subtitles className="w-5 h-5" />
+          {label('Captions')}
+        </button>
+
+        {/* ── Layout ───────────────────────────────────────────── */}
+        <button onClick={onToggleLayout} className={actionBtn} title="Switch layout">
+          <LayoutGrid className="w-5 h-5" />
+          {label(layoutLabel)}
+        </button>
+
+        {/* ── Polls ────────────────────────────────────────────── */}
+        <button onClick={onTogglePolls} className={panelBtn(pollsOpen)} title="Polls & Q&A">
+          <ClipboardList className="w-5 h-5" />
+          {label('Polls')}
+        </button>
+
+        {/* ── Whiteboard ───────────────────────────────────────── */}
+        <button onClick={onToggleWhiteboard} className={panelBtn(whiteboardOpen)} title="Whiteboard">
+          <PenLine className="w-5 h-5" />
+          {label('Board')}
         </button>
 
         {/* ── Invite link ──────────────────────────────────────── */}
@@ -353,12 +428,11 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
           <Shield className="w-5 h-5" />
           {label('Guard')}
           {deepfakeAlert && (
-            <span className="absolute top-1.5 right-2 w-2 h-2 bg-danger rounded-full
-                             animate-pulse ring-2 ring-surface" />
+            <span className="absolute top-1.5 right-2 w-2 h-2 bg-danger rounded-full animate-pulse ring-2 ring-surface" />
           )}
         </button>
 
-        {/* ── More (advanced) ──────────────────────────────────── */}
+        {/* ── More ─────────────────────────────────────────────── */}
         <div className="relative" ref={moreMenuRef}>
           <button onClick={() => setMoreMenuOpen(!moreMenuOpen)}
             className={panelBtn(moreMenuOpen)} title="More options">
@@ -367,7 +441,7 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
           </button>
           {moreMenuOpen && (
             <div className="absolute bottom-full right-0 mb-2 bg-surface-2 border border-white/10
-                            rounded-xl overflow-hidden shadow-2xl min-w-48 z-50 animate-in">
+                            rounded-xl overflow-hidden shadow-2xl min-w-52 z-50 animate-in">
               <div className="px-3 py-2 text-xs text-text-muted border-b border-white/8 bg-white/4">
                 Advanced Options
               </div>
@@ -389,6 +463,37 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
                   <div className="text-xs text-text-muted">Audio, video & meeting options</div>
                 </div>
               </button>
+
+              {/* Host-only section */}
+              {isHost && (
+                <>
+                  <div className="px-3 py-2 text-xs text-yellow-400/80 border-t border-white/8 bg-yellow-500/5 font-semibold">
+                    Host Controls
+                  </div>
+                  <button onClick={() => { onMuteAll?.(); setMoreMenuOpen(false); }}
+                    className="w-full px-4 py-3 text-left text-sm flex items-center gap-3
+                               hover:bg-white/6 text-white/80 hover:text-white transition-colors">
+                    <MicOff className="w-4 h-4 text-yellow-400" />
+                    <div>
+                      <div className="font-medium">Mute All</div>
+                      <div className="text-xs text-text-muted">Silence all participants</div>
+                    </div>
+                  </button>
+                  <button onClick={() => { onLockMeeting?.(); setMoreMenuOpen(false); }}
+                    className="w-full px-4 py-3 text-left text-sm flex items-center gap-3
+                               hover:bg-white/6 text-white/80 hover:text-white transition-colors">
+                    {isMeetingLocked
+                      ? <Unlock className="w-4 h-4 text-yellow-400" />
+                      : <Lock   className="w-4 h-4 text-yellow-400" />}
+                    <div>
+                      <div className="font-medium">{isMeetingLocked ? 'Unlock Meeting' : 'Lock Meeting'}</div>
+                      <div className="text-xs text-text-muted">
+                        {isMeetingLocked ? 'Allow new participants' : 'Prevent new joins'}
+                      </div>
+                    </div>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -403,7 +508,7 @@ const MeetingToolbar: React.FC<MeetingToolbarProps> = ({
                      transition-all duration-200"
           title="Leave meeting">
           <PhoneOff className="w-5 h-5" />
-          {label('Leave')}
+          {label(isHost ? 'End' : 'Leave')}
         </button>
 
         {/* Reset position */}

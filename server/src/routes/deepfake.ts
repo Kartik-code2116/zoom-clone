@@ -44,6 +44,7 @@ router.post('/analyze', auth, async (req: AuthRequest, res: Response): Promise<v
       score: prediction?.confidence || 0,
       trustScore: mlResult.trust_score ?? 50,
       isLikelyFake: mlResult.is_likely_fake ?? false,
+      deepfakeCount: mlResult.deepfake_count ?? 0,
       faceDetected: mlResult.face_detected ?? false,
       frameMetrics: mlResult.frame_metrics || null,
       probabilities: prediction?.probabilities || { real: 0.5, fake: 0.5 },

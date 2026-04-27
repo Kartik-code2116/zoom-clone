@@ -149,7 +149,8 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
     return Object.entries(grouped).map(([participantId, pLogs]) => {
       const latest    = pLogs[pLogs.length - 1];
       const avgTrust  = pLogs.reduce((s, l) => s + l.trustScore, 0) / pLogs.length;
-      const fakeCount = pLogs.filter(l => l.isLikelyFake || l.trustScore < 40).length;
+      // Deepfake detection: trust_score 30-59 = flagged
+      const fakeCount = pLogs.filter(l => l.isLikelyFake || (30 <= l.trustScore && l.trustScore <= 59)).length;
       const isLive    = Date.now() - new Date(latest.createdAt).getTime() < 30000;
       return { participantId, latestLog: latest, logCount: pLogs.length, avgTrustScore: avgTrust, fakeDetections: fakeCount, isLive };
     }).sort((a, b) => b.avgTrustScore - a.avgTrustScore);
@@ -161,7 +162,9 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
     const last = logs.at(-1) ?? null;
     const mlDetections = logs.filter(l => l.mlLabel?.toLowerCase() === 'fake').length;
     const mlFrames     = logs.filter(l => l.mlLabel).length;
-    return { minTrust, avgTrust, last, mlDetections, mlFrames };
+    // Deepfake detection: trust_score 30-59 = flagged
+    const totalFlagged = logs.filter(l => l.isLikelyFake || (30 <= l.trustScore && l.trustScore <= 59)).length;
+    return { minTrust, avgTrust, last, mlDetections, mlFrames, totalFlagged };
   }, [logs]);
 
   const chartData = useMemo(() => logs.map(log => ({
@@ -172,9 +175,10 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
   })), [logs]);
 
   const riskLevel = useMemo((): 'safe' | 'warning' | 'danger' => {
-    const fakeCount = participantStatus.filter(p => p.latestLog.isLikelyFake || p.avgTrustScore < 40).length;
-    if (fakeCount === 0) return 'safe';
-    if (fakeCount === 1) return 'warning';
+    // Deepfake detection: trust_score 30-59 = flagged
+    const flaggedCount = participantStatus.filter(p => p.latestLog.isLikelyFake || (30 <= p.avgTrustScore && p.avgTrustScore <= 59)).length;
+    if (flaggedCount === 0) return 'safe';
+    if (flaggedCount === 1) return 'warning';
     return 'danger';
   }, [participantStatus]);
 
@@ -225,7 +229,13 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
               </div>
               <div>
                 <h2 className="text-base font-semibold text-white">Fraud Guard</h2>
-                <p className="text-xs text-slate-400">AI-Powered Detection</p>
+                <p className="text-xs text-slate-400">
+                  {summary.totalFlagged > 0 ? (
+                    <span className="text-red-400 font-medium">{summary.totalFlagged} flagged</span>
+                  ) : (
+                    'AI-Powered Detection'
+                  )}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -330,7 +340,8 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
                   <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
                     {participantStatus.map((participant) => {
                       const tc = trustColour(participant.avgTrustScore);
-                      const isSuspicious = participant.latestLog.isLikelyFake || participant.avgTrustScore < 40;
+                      // Deepfake detection: trust_score 30-59 = flagged
+                      const isSuspicious = participant.latestLog.isLikelyFake || (30 <= participant.avgTrustScore && participant.avgTrustScore <= 59);
                       return (
                         <div key={participant.participantId}
                           className="p-4 rounded-xl border transition-all"
@@ -372,9 +383,9 @@ const FraudDashboardPanel: React.FC<FraudDashboardPanelProps> = ({
                             </div>
                           </div>
                           {participant.fakeDetections > 0 && (
-                            <div className="mt-2 text-xs text-red-400 flex items-center gap-1.5">
+                            <div className="mt-2 text-xs text-red-400 flex items-center gap-1.5 font-semibold">
                               <AlertTriangle className="w-3 h-3" />
-                              {participant.fakeDetections} suspicious frame{participant.fakeDetections !== 1 ? 's' : ''}
+                              {participant.fakeDetections} flagged
                             </div>
                           )}
                           {participant.latestLog.mlProbabilities && (

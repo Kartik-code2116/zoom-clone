@@ -22,6 +22,11 @@ import cv2
 import numpy as np
 from flask import Flask, jsonify, request
 
+# ─── Snapshot configuration ────────────────────────────────────────────────────
+SNAPSHOTS_DIR = Path(__file__).parent / "snapshots"
+SNAPSHOTS_DIR.mkdir(exist_ok=True)
+print(f"[ML Service] Snapshots will be saved to: {SNAPSHOTS_DIR}")
+
 try:
     from flask_cors import CORS
     HAS_CORS = True
@@ -71,6 +76,8 @@ sessions = defaultdict(
         "features_history": [],
         "created_at": datetime.now().isoformat(),
         "last_analysis": None,
+        "snapshot_captured": False,  # Track if we've already taken snapshot
+        "deepfake_count": 0,  # Count of deepfake detections (trust_score 30-59)
     }
 )
 sessions_lock = threading.Lock()
@@ -142,7 +149,21 @@ def detect_face_and_extract_features(image: np.ndarray) -> dict:
     }
 
 
-def analyze_single_frame(image: np.ndarray, session_data: dict) -> dict:
+def save_snapshot(image: np.ndarray, session_id: str, trust_score: float, prediction: str) -> str:
+    """Save a snapshot image when trust score threshold is reached."""
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        filename = f"snapshot_{session_id}_{timestamp}_trust{trust_score:.0f}_{prediction}.jpg"
+        filepath = SNAPSHOTS_DIR / filename
+        cv2.imwrite(str(filepath), image)
+        print(f"[ML Service] Snapshot saved: {filepath}")
+        return str(filepath)
+    except Exception as e:
+        print(f"[ML Service] Failed to save snapshot: {e}")
+        return None
+
+
+def analyze_single_frame(image: np.ndarray, session_data: dict, session_id: str = "default") -> dict:
     face_features = detect_face_and_extract_features(image)
 
     if not face_features["face_detected"]:
@@ -188,6 +209,18 @@ def analyze_single_frame(image: np.ndarray, session_data: dict) -> dict:
                     "score": final_score,
                 }
 
+                # Check for deepfake detection (trust_score 30-59 = deepfake range)
+                snapshot_path = None
+                is_deepfake_detected = 30 <= trust_score <= 59
+                if is_deepfake_detected:
+                    session_data["deepfake_count"] += 1
+                    # Capture snapshot on first detection or every 5th detection
+                    if not session_data["snapshot_captured"] or session_data["deepfake_count"] % 5 == 0:
+                        snapshot_path = save_snapshot(image, session_id, trust_score, prediction)
+                        if not session_data["snapshot_captured"]:
+                            session_data["snapshot_captured"] = True
+                    print(f"[ML Service] DEEPFAKE DETECTED! Trust score: {trust_score:.1f} | Count: {session_data['deepfake_count']}")
+
                 features = result.get("features", {})
                 return {
                     "face_detected": True,
@@ -213,12 +246,14 @@ def analyze_single_frame(image: np.ndarray, session_data: dict) -> dict:
                     # FIX: also expose frame_count at top level for robustness
                     "frame_count": session_data["frame_count"],
                     "trust_score": round(trust_score, 2),
-                    "is_likely_fake": final_score >= 0.5,
+                    "is_likely_fake": 30 <= trust_score <= 59,  # Deepfake if trust_score in 30-59 range
+                    "deepfake_count": session_data["deepfake_count"],
                     "frame_metrics": {"ear": 0.25, "blink_detected": False, "face_quality": face_features},
+                    "snapshot": snapshot_path,  # Path to saved snapshot if captured
                 }
             except Exception as e:
                 print(f"[ML Service] Pipeline analysis error: {e}")
-                return fallback_analysis(image, face_features, session_data)
+                return fallback_analysis(image, face_features, session_data, session_id)
             finally:
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
@@ -241,10 +276,10 @@ def analyze_single_frame(image: np.ndarray, session_data: dict) -> dict:
 
     except Exception as e:
         print(f"[ML Service] Analysis error: {e}")
-        return fallback_analysis(image, face_features, session_data)
+        return fallback_analysis(image, face_features, session_data, session_id)
 
 
-def fallback_analysis(image: np.ndarray, face_features: dict, session_data: dict) -> dict:
+def fallback_analysis(image: np.ndarray, face_features: dict, session_data: dict, session_id: str = "default") -> dict:
     session_data["frame_count"] += 1
 
     blur_score = min(1.0, face_features.get("face_blur", 1000) / 1000)
@@ -267,8 +302,23 @@ def fallback_analysis(image: np.ndarray, face_features: dict, session_data: dict
     confidence = suspicious_score if prediction == "Fake" else 1 - suspicious_score
     trust_score = (1 - suspicious_score) * 100
 
+    # Check for deepfake detection in fallback mode (trust_score 30-59 = deepfake range)
+    snapshot_path = None
+    is_deepfake_detected = 30 <= trust_score <= 59
+    if is_deepfake_detected:
+        session_data["deepfake_count"] += 1
+        # Capture snapshot on first detection or every 5th detection
+        if not session_data["snapshot_captured"] or session_data["deepfake_count"] % 5 == 0:
+            snapshot_path = save_snapshot(image, session_id, trust_score, prediction)
+            if not session_data["snapshot_captured"]:
+                session_data["snapshot_captured"] = True
+        print(f"[ML Service] DEEPFAKE DETECTED! Trust score: {trust_score:.1f} | Count: {session_data['deepfake_count']}")
+
     return {
         "face_detected": True,
+        "snapshot": snapshot_path,  # Path to saved snapshot if captured
+        "deepfake_count": session_data["deepfake_count"],
+        "is_likely_fake": 30 <= trust_score <= 59,  # Deepfake if trust_score in 30-59 range
         "prediction": {
             "label": prediction.lower(),
             "confidence": round(confidence, 4),
@@ -371,7 +421,7 @@ def analyze_frame():
         with sessions_lock:
             session_data = sessions[session_id]
 
-        result = analyze_single_frame(image, session_data)
+        result = analyze_single_frame(image, session_data, session_id)
         return jsonify({"success": True, **result})
 
     except Exception as e:
