@@ -1,8 +1,0 @@
-# Development Dependencies
-
-# Example libraries, update with actual development dependencies
-pytest
-black
-flake8
-django-debug-toolbar
-mypy
